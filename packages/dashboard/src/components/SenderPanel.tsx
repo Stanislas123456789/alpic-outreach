@@ -60,7 +60,7 @@ export default function SenderPanel({
           {/* Steps */}
           <div style={styles.steps}>
             {[
-              { n: '1', label: 'Pick contacts', desc: 'Review who's next in the queue' },
+              { n: '1', label: 'Pick contacts', desc: "Review who's next in the queue" },
               { n: '2', label: 'Edit emails', desc: 'Tweak subject or body per contact' },
               { n: '3', label: 'Watch live', desc: 'See each send happen in real time' },
             ].map(s => (
