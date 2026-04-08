@@ -49,7 +49,7 @@ export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
   const { contacts, loading, error, lastUpdated, refresh, repMetrics, industryMetrics, funnel, stats } = useSheets(activeSource.sheetId, activeSource.sheetTab, 30000);
-  const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders'>('senders');
   const [showSources, setShowSources] = useState(false);
   const api = useApi(user);
 

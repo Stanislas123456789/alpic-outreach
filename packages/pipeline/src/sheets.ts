@@ -15,7 +15,11 @@ const FIRST_TRACKING_COL = 'R'; // Column 18 = R
 
 function getAuth() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const key = process.env.GOOGLE_PRIVATE_KEY
+    ?.replace(/\\n/g, '\n')           // literal \n → real newline
+    ?.split('\n')
+    .map(l => l.trim())               // strip spaces Railway editor adds mid-line
+    .join('\n');
 
   if (email && key) {
     // Service Account (recommended for pipeline)

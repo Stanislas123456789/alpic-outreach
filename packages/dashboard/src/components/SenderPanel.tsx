@@ -37,115 +37,169 @@ export default function SenderPanel({
 }: Props) {
   const [showPreview, setShowPreview] = useState(false);
   const [showLive, setShowLive] = useState(false);
+  const [showSenders, setShowSenders] = useState(false);
+
   const userSender = senders.find(s => s.email === user.email);
   const isConnected = !!userSender?.connected;
   const hasAnySender = senders.some(s => s.connected);
+  const totalRemaining = senders.filter(s => s.connected).reduce((sum, s) => sum + s.remaining, 0);
+  const totalSentToday = senders.filter(s => s.connected).reduce((sum, s) => sum + s.sentToday, 0);
 
   return (
     <div style={styles.wrap}>
 
-      {/* ── Your account ────────────────────────────────────────── */}
-      <div style={styles.card}>
-        <h3 style={styles.cardTitle}>Your Gmail</h3>
-        <div style={styles.accountRow}>
-          {user.picture
-            ? <img src={user.picture} alt={user.name} style={styles.avatar} />
-            : <div style={styles.avatarFallback}>{user.name[0].toUpperCase()}</div>
-          }
-          <div style={styles.accountInfo}>
-            <div style={styles.accountName}>{user.name}</div>
-            <div style={styles.accountEmail}>{user.email}</div>
+      {/* ── HERO: Launch Campaign ─────────────────────────────── */}
+      <div style={styles.hero}>
+        <div style={styles.heroLeft}>
+          <div style={styles.heroLabel}>Outreach Pipeline</div>
+          <h2 style={styles.heroTitle}>Ready to send?</h2>
+          <p style={styles.heroDesc}>
+            Preview pending contacts, edit emails if needed, then launch — and watch each email go out in real time.
+          </p>
+
+          {/* Steps */}
+          <div style={styles.steps}>
+            {[
+              { n: '1', label: 'Pick contacts', desc: 'Review who's next in the queue' },
+              { n: '2', label: 'Edit emails', desc: 'Tweak subject or body per contact' },
+              { n: '3', label: 'Watch live', desc: 'See each send happen in real time' },
+            ].map(s => (
+              <div key={s.n} style={styles.step}>
+                <div style={styles.stepNum}>{s.n}</div>
+                <div>
+                  <div style={styles.stepLabel}>{s.label}</div>
+                  <div style={styles.stepDesc}>{s.desc}</div>
+                </div>
+              </div>
+            ))}
           </div>
-          <div style={{ marginLeft: 'auto' }}>
-            {isConnected
-              ? <span style={styles.badgeGreen}>Connected</span>
-              : (
-                <a
-                  href={getConnectUrl(user.email)}
-                  style={styles.connectBtn}
-                >
-                  Connect Gmail →
-                </a>
-              )
-            }
+
+          <div style={{ display: 'flex', gap: 12, marginTop: 28, flexWrap: 'wrap' as const }}>
+            <button
+              style={{
+                ...styles.launchBtn,
+                opacity: loading || !hasAnySender ? 0.45 : 1,
+                cursor: loading || !hasAnySender ? 'not-allowed' : 'pointer',
+              }}
+              onClick={() => { setShowLive(false); setShowPreview(true); }}
+              disabled={loading || !hasAnySender}
+            >
+              {loading ? '⏳ Running…' : '🚀 Launch Campaign'}
+            </button>
+            {showLive && (
+              <button style={styles.liveBtn} onClick={() => setShowLive(true)}>
+                📡 View Live Feed
+              </button>
+            )}
           </div>
+
+          {!hasAnySender && !isConnected && (
+            <div style={styles.connectPrompt}>
+              <span style={{ color: 'var(--text-secondary)' }}>Gmail not connected —</span>
+              <a href={getConnectUrl(user.email)} style={styles.connectLink}>Connect now →</a>
+            </div>
+          )}
+          {runMessage && <p style={styles.successMsg}>✅ {runMessage}</p>}
+          {apiError && <p style={styles.errorMsg}>⚠ {apiError}</p>}
         </div>
 
-        {isConnected && userSender && (
-          <div style={styles.quotaRow}>
-            <div style={styles.quotaStat}>
-              <span style={styles.quotaLabel}>Sent today</span>
-              <strong style={styles.quotaValue}>{userSender.sentToday}</strong>
+        {/* Right: sender status card */}
+        <div style={styles.heroRight}>
+          <div style={styles.senderCard}>
+            <div style={styles.senderCardTop}>
+              {user.picture
+                ? <img src={user.picture} alt={user.name} style={styles.avatar} />
+                : <div style={styles.avatarFallback}>{user.name[0].toUpperCase()}</div>
+              }
+              <div>
+                <div style={styles.senderName}>{user.name}</div>
+                <div style={styles.senderEmail}>{user.email}</div>
+              </div>
+              {isConnected
+                ? <span style={styles.badgeGreen}>Connected</span>
+                : <a href={getConnectUrl(user.email)} style={styles.connectBtn}>Connect →</a>
+              }
             </div>
-            <div style={styles.quotaDivider} />
-            <div style={styles.quotaStat}>
-              <span style={styles.quotaLabel}>Remaining</span>
-              <strong style={{ ...styles.quotaValue, color: userSender.remaining > 0 ? '#34d399' : '#f87171' }}>
-                {userSender.remaining}
-              </strong>
-            </div>
-            <div style={styles.quotaDivider} />
-            <div style={styles.quotaStat}>
-              <span style={styles.quotaLabel}>Daily limit</span>
-              <strong style={styles.quotaValue}>{userSender.dailyLimit}</strong>
-            </div>
-            <div style={styles.quotaBarWrap}>
-              <div
-                style={{
-                  ...styles.quotaBar,
-                  width: `${Math.min(100, (userSender.sentToday / userSender.dailyLimit) * 100)}%`,
-                }}
-              />
-            </div>
-          </div>
-        )}
-      </div>
 
-      {/* ── Send batch ───────────────────────────────────────────── */}
-      <div style={styles.card}>
-        <h3 style={styles.cardTitle}>Launch Campaign</h3>
-        <p style={styles.batchDesc}>
-          Preview the next pending contacts from your sheet, remove or edit emails before sending, then watch them go out live.
-        </p>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const }}>
-          <button
-            style={{
-              ...styles.sendBtn,
-              opacity: loading || !hasAnySender ? 0.5 : 1,
-              cursor: loading || !hasAnySender ? 'not-allowed' : 'pointer',
-            }}
-            onClick={() => { setShowLive(false); setShowPreview(true); }}
-            disabled={loading || !hasAnySender}
-          >
-            {loading ? '⏳ Running...' : '👁 Preview & Send'}
-          </button>
-          {showLive && (
-            <button
-              style={{ ...styles.sendBtn, background: '#34d399' }}
-              onClick={() => setShowLive(true)}
-            >
-              📡 View Live Feed
+            {isConnected && userSender && (
+              <>
+                <div style={styles.quotaRow}>
+                  <div style={styles.quotaStat}>
+                    <span style={styles.quotaLabel}>Sent today</span>
+                    <strong style={styles.quotaValue}>{userSender.sentToday}</strong>
+                  </div>
+                  <div style={styles.quotaDivider} />
+                  <div style={styles.quotaStat}>
+                    <span style={styles.quotaLabel}>Remaining</span>
+                    <strong style={{ ...styles.quotaValue, color: userSender.remaining > 0 ? '#34d399' : '#f87171' }}>
+                      {userSender.remaining}
+                    </strong>
+                  </div>
+                  <div style={styles.quotaDivider} />
+                  <div style={styles.quotaStat}>
+                    <span style={styles.quotaLabel}>Limit</span>
+                    <strong style={styles.quotaValue}>{userSender.dailyLimit}</strong>
+                  </div>
+                </div>
+                <div style={styles.quotaBarWrap}>
+                  <div style={{
+                    ...styles.quotaBar,
+                    width: `${Math.min(100, (userSender.sentToday / userSender.dailyLimit) * 100)}%`,
+                  }} />
+                </div>
+              </>
+            )}
+
+            {pipelineStatus?.lastRunAt && (
+              <div style={styles.lastRun}>
+                Last run: {new Date(pipelineStatus.lastRunAt).toLocaleString()}
+                <span style={{ marginLeft: 6, color: pipelineStatus.lastRunResult === 'success' ? '#34d399' : '#f87171' }}>
+                  {pipelineStatus.lastRunResult === 'success' ? '✓' : '✗'}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* All senders toggle */}
+          {senders.length > 1 && (
+            <button style={styles.allSendersToggle} onClick={() => setShowSenders(v => !v)}>
+              {showSenders ? '▲' : '▼'} {senders.filter(s => s.connected).length} sender{senders.filter(s => s.connected).length !== 1 ? 's' : ''} active
+              {totalRemaining > 0 && <span style={{ color: '#34d399', marginLeft: 8 }}>{totalRemaining} emails remaining</span>}
             </button>
           )}
+
+          {showSenders && (
+            <div style={styles.sendersTable}>
+              {senders.map(s => (
+                <div key={s.email} style={styles.senderRow}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>{s.email}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{s.sentToday}/{s.dailyLimit} sent</div>
+                  </div>
+                  <span style={s.connected ? styles.badgeGreen : styles.badgeGray}>
+                    {s.connected ? 'Active' : 'Offline'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button style={styles.refreshBtn} onClick={onRefresh}>↻ Refresh status</button>
         </div>
-
-        {!hasAnySender && (
-          <p style={styles.hint}>Connect at least one Gmail account above to enable sending.</p>
-        )}
-        {runMessage && <p style={styles.successMsg}>✅ {runMessage}</p>}
-        {apiError && <p style={styles.errorMsg}>⚠ {apiError}</p>}
-
-        {pipelineStatus?.lastRunAt && (
-          <p style={styles.lastRun}>
-            Last run: {new Date(pipelineStatus.lastRunAt).toLocaleString()}
-            {pipelineStatus.lastRunResult && (
-              <span style={{ marginLeft: 8, color: pipelineStatus.lastRunResult === 'success' ? '#34d399' : '#f87171' }}>
-                {pipelineStatus.lastRunResult === 'success' ? '✓ success' : `✗ ${pipelineStatus.lastRunError || 'error'}`}
-              </span>
-            )}
-          </p>
-        )}
       </div>
+
+      {/* ── Live send view ───────────────────────────────────────── */}
+      {showLive && (
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <h3 style={styles.cardTitle}>Live Send Feed</h3>
+          </div>
+          <SendLiveView
+            pollProgress={pollProgress}
+            onDone={() => { setShowLive(false); onRefresh(); }}
+          />
+        </div>
+      )}
 
       {/* ── Preview modal ────────────────────────────────────────── */}
       {showPreview && (
@@ -161,61 +215,6 @@ export default function SenderPanel({
           }}
         />
       )}
-
-      {/* ── Live send view ───────────────────────────────────────── */}
-      {showLive && (
-        <div style={styles.card}>
-          <div style={styles.senderListHeader}>
-            <h3 style={styles.cardTitle}>Live Send Feed</h3>
-          </div>
-          <SendLiveView
-            pollProgress={pollProgress}
-            onDone={() => { setShowLive(false); onRefresh(); }}
-          />
-        </div>
-      )}
-
-      {/* ── All connected senders ────────────────────────────────── */}
-      {senders.length > 0 && (
-        <div style={styles.card}>
-          <div style={styles.senderListHeader}>
-            <h3 style={styles.cardTitle}>All Senders</h3>
-            <button style={styles.refreshBtn} onClick={onRefresh}>↻ Refresh</button>
-          </div>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Account</th>
-                <th style={styles.th}>Sent today</th>
-                <th style={styles.th}>Remaining</th>
-                <th style={styles.th}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {senders.map(s => (
-                <tr key={s.email}>
-                  <td style={styles.td}>
-                    <div style={styles.senderEmail}>{s.email}</div>
-                    <div style={styles.senderName}>{s.name}</div>
-                  </td>
-                  <td style={styles.td}>{s.sentToday}</td>
-                  <td style={styles.td}>
-                    <span style={{ color: s.remaining > 0 ? '#34d399' : '#f87171' }}>
-                      {s.remaining} / {s.dailyLimit}
-                    </span>
-                  </td>
-                  <td style={styles.td}>
-                    {s.connected
-                      ? <span style={styles.badgeGreen}>Active</span>
-                      : <span style={styles.badgeGray}>Not connected</span>
-                    }
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }
@@ -225,206 +224,304 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: 20,
-    maxWidth: 720,
+    maxWidth: 1100,
   },
-  card: {
+
+  // Hero
+  hero: {
     background: 'var(--card)',
     border: '1px solid var(--border)',
-    borderRadius: 12,
-    padding: 24,
+    borderRadius: 16,
+    padding: 32,
+    display: 'flex',
+    gap: 40,
+    alignItems: 'flex-start',
   },
-  cardTitle: {
+  heroLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  heroLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: 'var(--accent)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.1em',
+    marginBottom: 8,
+  },
+  heroTitle: {
+    fontSize: 32,
+    fontWeight: 700,
+    color: 'var(--text)',
+    margin: '0 0 10px',
+    lineHeight: 1.2,
+  },
+  heroDesc: {
     fontSize: 14,
-    fontWeight: 600,
     color: 'var(--text-secondary)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-    margin: '0 0 16px',
+    lineHeight: 1.6,
+    margin: 0,
+    maxWidth: 420,
   },
-  accountRow: {
+  steps: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 12,
+    marginTop: 24,
+  },
+  step: {
     display: 'flex',
     alignItems: 'center',
     gap: 12,
   },
-  avatar: {
-    width: 40,
-    height: 40,
+  stepNum: {
+    width: 28,
+    height: 28,
     borderRadius: '50%',
+    background: 'var(--accent)22',
+    color: 'var(--accent)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 12,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  stepLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'var(--text)',
+  },
+  stepDesc: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    marginTop: 1,
+  },
+  launchBtn: {
+    background: 'var(--accent)',
+    color: 'white',
+    border: 'none',
+    borderRadius: 10,
+    padding: '14px 32px',
+    fontSize: 15,
+    fontWeight: 700,
+    fontFamily: "'DM Sans', sans-serif",
+    cursor: 'pointer',
+    transition: 'opacity 0.15s, transform 0.1s',
+    letterSpacing: '0.01em',
+  },
+  liveBtn: {
+    background: '#34d39922',
+    color: '#34d399',
+    border: '1px solid #34d39944',
+    borderRadius: 10,
+    padding: '14px 24px',
+    fontSize: 14,
+    fontWeight: 600,
+    fontFamily: "'DM Sans', sans-serif",
+    cursor: 'pointer',
+  },
+  connectPrompt: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    fontSize: 13,
+  },
+  connectLink: {
+    color: 'var(--accent)',
+    fontWeight: 600,
+    textDecoration: 'none',
+  },
+  successMsg: {
+    fontSize: 13,
+    color: '#34d399',
+    marginTop: 14,
+  },
+  errorMsg: {
+    fontSize: 13,
+    color: '#f87171',
+    marginTop: 14,
+  },
+
+  // Right side sender card
+  heroRight: {
+    width: 280,
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 10,
+  },
+  senderCard: {
+    background: 'var(--bg)',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
+    padding: 16,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 12,
+  },
+  senderCardTop: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: '50%',
+    flexShrink: 0,
   },
   avatarFallback: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     borderRadius: '50%',
     background: 'var(--accent)',
     color: 'white',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: 16,
-    fontWeight: 600,
-  },
-  accountInfo: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
-  },
-  accountName: {
     fontSize: 14,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  senderName: {
+    fontSize: 13,
     fontWeight: 600,
     color: 'var(--text)',
   },
-  accountEmail: {
-    fontSize: 12,
+  senderEmail: {
+    fontSize: 11,
     color: 'var(--text-secondary)',
   },
   badgeGreen: {
-    background: '#34d39933',
+    background: '#34d39922',
     color: '#34d399',
     borderRadius: 6,
-    padding: '4px 10px',
-    fontSize: 12,
+    padding: '3px 8px',
+    fontSize: 11,
     fontWeight: 600,
+    marginLeft: 'auto',
+    flexShrink: 0,
   },
   badgeGray: {
-    background: '#94a3b833',
+    background: '#94a3b822',
     color: '#94a3b8',
     borderRadius: 6,
-    padding: '4px 10px',
-    fontSize: 12,
+    padding: '3px 8px',
+    fontSize: 11,
+    flexShrink: 0,
   },
   connectBtn: {
     background: 'var(--accent)',
     color: 'white',
-    borderRadius: 8,
-    padding: '8px 16px',
-    fontSize: 13,
+    borderRadius: 6,
+    padding: '5px 12px',
+    fontSize: 12,
     fontWeight: 600,
     textDecoration: 'none',
-    display: 'inline-block',
+    marginLeft: 'auto',
+    flexShrink: 0,
   },
   quotaRow: {
-    marginTop: 16,
     display: 'flex',
     alignItems: 'center',
-    gap: 16,
-    flexWrap: 'wrap',
-    position: 'relative',
+    gap: 12,
   },
   quotaStat: {
     display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
+    flexDirection: 'column' as const,
+    gap: 1,
+    flex: 1,
+    alignItems: 'center' as const,
   },
   quotaLabel: {
-    fontSize: 11,
+    fontSize: 10,
     color: 'var(--text-secondary)',
-    textTransform: 'uppercase',
+    textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
   },
   quotaValue: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 700,
     color: 'var(--text)',
   },
   quotaDivider: {
     width: 1,
-    height: 36,
+    height: 28,
     background: 'var(--border)',
   },
   quotaBarWrap: {
-    flex: 1,
-    minWidth: 120,
-    height: 6,
+    height: 4,
     background: 'var(--border)',
-    borderRadius: 3,
+    borderRadius: 2,
     overflow: 'hidden',
   },
   quotaBar: {
     height: '100%',
     background: 'var(--accent)',
-    borderRadius: 3,
+    borderRadius: 2,
     transition: 'width 0.3s',
   },
-  batchDesc: {
-    fontSize: 13,
-    color: 'var(--text-secondary)',
-    margin: '0 0 16px',
-    lineHeight: 1.5,
-  },
-  sendBtn: {
-    background: 'var(--accent)',
-    color: 'white',
-    border: 'none',
-    borderRadius: 8,
-    padding: '12px 24px',
-    fontSize: 14,
-    fontWeight: 600,
-    fontFamily: "'DM Sans', sans-serif",
-    cursor: 'pointer',
-    transition: 'opacity 0.15s',
-  },
-  hint: {
-    fontSize: 12,
-    color: 'var(--text-secondary)',
-    marginTop: 8,
-  },
-  successMsg: {
-    fontSize: 13,
-    color: '#34d399',
-    marginTop: 10,
-  },
-  errorMsg: {
-    fontSize: 13,
-    color: '#f87171',
-    marginTop: 10,
-  },
   lastRun: {
-    fontSize: 12,
+    fontSize: 11,
     color: 'var(--text-secondary)',
-    marginTop: 12,
   },
-  senderListHeader: {
+  allSendersToggle: {
+    background: 'none',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    color: 'var(--text-secondary)',
+    fontSize: 12,
+    padding: '8px 12px',
+    cursor: 'pointer',
+    textAlign: 'left' as const,
+    fontFamily: "'DM Sans', sans-serif",
+    width: '100%',
+  },
+  sendersTable: {
+    background: 'var(--bg)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  senderRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    padding: '10px 12px',
+    borderBottom: '1px solid var(--border)',
+    fontSize: 12,
+    color: 'var(--text)',
   },
   refreshBtn: {
-    background: 'var(--bg)',
+    background: 'none',
     border: '1px solid var(--border)',
-    borderRadius: 6,
+    borderRadius: 8,
     color: 'var(--text-secondary)',
-    fontSize: 12,
-    padding: '4px 10px',
-    cursor: 'pointer',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-  },
-  th: {
-    textAlign: 'left',
     fontSize: 11,
+    padding: '6px 12px',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+    width: '100%',
+  },
+
+  // Card (for live view)
+  card: {
+    background: 'var(--card)',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
+    padding: 24,
+  },
+  cardHeader: {
+    marginBottom: 16,
+  },
+  cardTitle: {
+    fontSize: 13,
     fontWeight: 600,
     color: 'var(--text-secondary)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    padding: '8px 12px',
-    borderBottom: '1px solid var(--border)',
-  },
-  td: {
-    padding: '10px 12px',
-    fontSize: 13,
-    color: 'var(--text)',
-    borderBottom: '1px solid var(--border)',
-  },
-  senderEmail: {
-    fontSize: 13,
-    color: 'var(--text)',
-  },
-  senderName: {
-    fontSize: 11,
-    color: 'var(--text-secondary)',
-    marginTop: 2,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.06em',
+    margin: 0,
   },
 };
