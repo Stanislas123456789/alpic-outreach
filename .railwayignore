@@ -1,0 +1,7 @@
+node_modules
+packages/dashboard/node_modules
+packages/tracking-server/node_modules
+packages/dashboard/dist
+packages/api/node_modules
+packages/pipeline/node_modules
+.git

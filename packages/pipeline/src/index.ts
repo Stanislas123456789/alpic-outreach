@@ -1,0 +1,310 @@
+// ============================================
+// ALPIC OUTREACH PIPELINE - MAIN ORCHESTRATOR
+// ============================================
+import cron from 'node-cron';
+import chalk from 'chalk';
+import dayjs from 'dayjs';
+import dotenv from 'dotenv';
+dotenv.config();
+
+import { getPendingContacts, updateContactStatus, ensureTrackingHeaders } from './sheets';
+import { validateEmail } from './validator';
+import { buildSubject, buildBody, previewEmail } from './template';
+import { pickSender, sendEmail, resetDailyCounters, getSendStats } from './gmail';
+import { checkReplies, checkBounces } from './tracker';
+import { Contact } from './types';
+
+const DRY_RUN = process.env.DRY_RUN === 'true';
+const TEST_EMAIL = process.env.TEST_EMAIL || '';
+const MIN_DELAY = parseInt(process.env.MIN_DELAY_SECONDS || '90') * 1000;
+const MAX_DELAY = parseInt(process.env.MAX_DELAY_SECONDS || '180') * 1000;
+const CC_EMAIL = 'dimitri@alpic.ai';
+const BATCH_SIZE = 5; // contacts per run
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function randomDelay(min = MIN_DELAY, max = MAX_DELAY): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function log(msg: string, level: 'info' | 'success' | 'warn' | 'error' = 'info') {
+  const time = dayjs().format('HH:mm:ss');
+  const prefix = {
+    info: chalk.blue(`[${time}] ℹ`),
+    success: chalk.green(`[${time}] ✅`),
+    warn: chalk.yellow(`[${time}] ⚠`),
+    error: chalk.red(`[${time}] ❌`),
+  }[level];
+  console.log(`${prefix} ${msg}`);
+}
+
+// ─── Progress event type (mirrored from api route) ───────────────────────────
+
+interface ProgressEvent {
+  type: 'start' | 'sending' | 'sent' | 'failed' | 'invalid' | 'skipped' | 'done';
+  contactId?: string;
+  email?: string;
+  firstName?: string;
+  company?: string;
+  via?: string;
+  error?: string;
+  total?: number;
+  index?: number;
+  timestamp: string;
+}
+
+// ─── Process a single contact ─────────────────────────────────────────────────
+
+async function processContact(
+  contact: Contact,
+  emailOverrides: Record<string, { subject: string; body: string }>,
+  onProgress?: (e: ProgressEvent) => void,
+): Promise<void> {
+  log(`Processing: ${contact.email} (${contact.company})`);
+
+  onProgress?.({
+    type: 'sending',
+    contactId: contact.id,
+    email: contact.email,
+    firstName: contact.firstName,
+    company: contact.company,
+    timestamp: new Date().toISOString(),
+  });
+
+  // 1. Validate email
+  const validation = await validateEmail(contact.email);
+  if (!validation.valid) {
+    log(`Invalid email ${contact.email}: ${validation.reason}`, 'warn');
+    await updateContactStatus(contact.rowIndex, {
+      status: 'invalid',
+      bounceReason: validation.reason,
+    });
+    onProgress?.({
+      type: 'invalid',
+      contactId: contact.id,
+      email: contact.email,
+      firstName: contact.firstName,
+      company: contact.company,
+      error: validation.reason,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  // 2. Pick sender
+  const sender = pickSender();
+  if (!sender) {
+    log('All senders at daily limit. Skipping batch.', 'warn');
+    onProgress?.({
+      type: 'skipped',
+      contactId: contact.id,
+      email: contact.email,
+      firstName: contact.firstName,
+      company: contact.company,
+      error: 'All senders at daily limit',
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  // 3. Assign sender to contact
+  contact.assignedTo = sender.email;
+
+  // 4. Build email (use override if provided)
+  const override = emailOverrides[contact.id];
+  const subject = override?.subject ?? buildSubject(contact);
+  const body = override?.body ?? buildBody(contact);
+
+  // 5. Dry run preview
+  if (DRY_RUN) {
+    previewEmail(contact);
+    log(`DRY RUN - Would send to ${contact.email} via ${sender.email}`, 'warn');
+    return;
+  }
+
+  // 6. Mark as sending (optimistic update to prevent double-send)
+  if (!TEST_EMAIL) {
+    await updateContactStatus(contact.rowIndex, {
+      status: 'sending',
+      assignedTo: sender.email,
+    });
+  }
+
+  // 7. Send
+  const recipient = TEST_EMAIL || contact.email;
+  if (TEST_EMAIL) log(`TEST MODE — redirecting to ${TEST_EMAIL}`, 'warn');
+  const result = await sendEmail(sender, recipient, subject, body, CC_EMAIL);
+
+  if (result.success) {
+    if (!TEST_EMAIL) {
+      await updateContactStatus(contact.rowIndex, {
+        status: 'sent',
+        assignedTo: sender.email,
+        sentAt: dayjs().toISOString(),
+        messageId: result.messageId,
+        threadId: result.threadId,
+      });
+    }
+    log(`Sent to ${contact.firstName} ${contact.lastName} @ ${contact.company} via ${sender.email}`, 'success');
+    onProgress?.({
+      type: 'sent',
+      contactId: contact.id,
+      email: contact.email,
+      firstName: contact.firstName,
+      company: contact.company,
+      via: sender.email,
+      timestamp: new Date().toISOString(),
+    });
+  } else {
+    if (!TEST_EMAIL) {
+      await updateContactStatus(contact.rowIndex, {
+        status: result.bounced ? 'bounced' : 'pending',
+        bounceReason: result.error?.slice(0, 100),
+      });
+    }
+    log(`Failed: ${contact.email} — ${result.error}`, 'error');
+    onProgress?.({
+      type: 'failed',
+      contactId: contact.id,
+      email: contact.email,
+      firstName: contact.firstName,
+      company: contact.company,
+      error: result.error,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
+// ─── Main pipeline run ────────────────────────────────────────────────────────
+
+export async function runPipeline(options?: {
+  excludeIds?: string[];
+  sheetId?: string;
+  sheetTab?: string;
+  emailOverrides?: Record<string, { subject: string; body: string }>;
+  onProgress?: (event: ProgressEvent) => void;
+}): Promise<void> {
+  const { onProgress, emailOverrides = {} } = options || {};
+
+  log(chalk.bold('🚀 Starting Alpic Outreach Pipeline'));
+
+  if (DRY_RUN) {
+    log(chalk.bgYellow.black(' DRY RUN MODE — No emails will be sent '), 'warn');
+  }
+
+  // Print send stats
+  try {
+    const stats = getSendStats();
+    log('Current send stats:');
+    stats.forEach(s => log(`  ${s.email}: ${s.sent}/${s.sent + s.remaining} sent today`));
+  } catch (_) {}
+
+  // Fetch pending contacts (use custom sheet if provided)
+  log(`Fetching up to ${BATCH_SIZE} pending contacts...`);
+  let contacts = await getPendingContacts(
+    BATCH_SIZE + (options?.excludeIds?.length || 0),
+    options?.sheetId,
+    options?.sheetTab
+  );
+
+  // Filter out contacts excluded in the preview step
+  if (options?.excludeIds?.length) {
+    contacts = contacts.filter(c => !options.excludeIds!.includes(c.id));
+    contacts = contacts.slice(0, BATCH_SIZE);
+  }
+
+  log(`Found ${contacts.length} pending contacts`);
+
+  if (contacts.length === 0) {
+    log('No pending contacts. Pipeline idle.', 'warn');
+    return;
+  }
+
+  onProgress?.({ type: 'start', total: contacts.length, timestamp: new Date().toISOString() });
+
+  // Process each contact with delay
+  for (let i = 0; i < contacts.length; i++) {
+    const contact = contacts[i];
+
+    await processContact(contact, emailOverrides, onProgress);
+
+    // Delay between sends (skip delay after last email)
+    if (i < contacts.length - 1 && !DRY_RUN) {
+      const delay = randomDelay();
+      log(`⏱  Waiting ${Math.round(delay / 1000)}s before next email...`);
+      await sleep(delay);
+    }
+  }
+
+  log(chalk.bold('✅ Pipeline run complete'), 'success');
+}
+
+// ─── Cron schedules ──────────────────────────────────────────────────────────
+
+export async function startCronJobs(): Promise<void> {
+  log('Starting cron jobs...');
+
+  // Main pipeline: runs every 30 minutes during business hours (8am-7pm)
+  cron.schedule('*/30 8-19 * * 1-5', async () => {
+    log('⏰ Scheduled pipeline run triggered');
+    await runPipeline().catch(err => log(`Pipeline error: ${err}`, 'error'));
+  });
+
+  // Reply/bounce check: every 15 minutes
+  cron.schedule('*/15 * * * *', async () => {
+    await checkReplies().catch(err => log(`Reply check error: ${err}`, 'error'));
+    await checkBounces().catch(err => log(`Bounce check error: ${err}`, 'error'));
+  });
+
+  // Reset daily counters at midnight
+  cron.schedule('0 0 * * *', () => {
+    resetDailyCounters();
+  });
+
+  log(chalk.green('✅ Cron jobs active'));
+  log('  📤 Pipeline: every 30min (Mon-Fri 8am-7pm)');
+  log('  📬 Reply/bounce check: every 15min');
+  log('  🔄 Daily reset: midnight');
+}
+
+// ─── Entry point ─────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  console.log(chalk.bold.blue(`
+  ╔═══════════════════════════════════╗
+  ║   ALPIC OUTREACH PIPELINE v1.0    ║
+  ║   ${DRY_RUN ? '⚠️  DRY RUN MODE              ' : '🚀 LIVE MODE                   '}  ║
+  ╚═══════════════════════════════════╝
+  `));
+
+  // Ensure sheet has tracking headers
+  await ensureTrackingHeaders().catch(err => {
+    log(`Could not write headers: ${err}`, 'warn');
+  });
+
+  // Run immediately on start
+  await runPipeline();
+
+  // Then start cron for subsequent runs
+  await startCronJobs();
+
+  // Keep process alive
+  log('Pipeline daemon running. Press Ctrl+C to stop.');
+}
+
+// Only auto-run when invoked directly (not when imported or bundled by API).
+// require.main === module is unreliable in esbuild bundles — check argv instead.
+const isDirectRun =
+  require.main === module &&
+  (process.argv[1]?.includes('/pipeline/') ||
+   process.argv[1]?.endsWith('pipeline'));
+if (isDirectRun) {
+  main().catch(err => {
+    console.error(chalk.red('Fatal error:'), err);
+    process.exit(1);
+  });
+}
