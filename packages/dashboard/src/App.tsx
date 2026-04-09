@@ -45,11 +45,84 @@ function ScoreBadge({ rate }: { rate: number }) {
   return <span className="score-badge">{'⭐'.repeat(stars)}</span>;
 }
 
+function friendlySheetError(error: string): { message: string; action: string } {
+  if (error.includes('No Sheet ID')) return {
+    message: 'No spreadsheet connected yet.',
+    action: 'Add your Google Sheet ID in settings to start tracking your outreach.',
+  };
+  if (error.includes('403')) return {
+    message: 'Access denied to the spreadsheet.',
+    action: 'Make sure the sheet is shared publicly (viewer access) or with the service account.',
+  };
+  if (error.includes('404')) return {
+    message: 'Spreadsheet not found.',
+    action: 'Double-check the Sheet ID in settings — it may be incorrect or the sheet was deleted.',
+  };
+  if (error.includes('400')) return {
+    message: 'Invalid spreadsheet configuration.',
+    action: 'Check both the Sheet ID and tab name in your settings.',
+  };
+  return {
+    message: 'Could not load spreadsheet data.',
+    action: 'Check your internet connection, verify your Sheet ID in settings, and try again.',
+  };
+}
+
+function EmptyState({ onAddSource }: { onAddSource: () => void }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      minHeight: 400, gap: 24, textAlign: 'center', padding: '48px 24px',
+    }}>
+      <div style={{ fontSize: 48 }}>📋</div>
+      <div>
+        <h2 style={{ color: 'var(--text)', fontSize: 22, fontWeight: 700, margin: '0 0 8px' }}>
+          Connect your first campaign sheet
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 14, maxWidth: 420, margin: 0, lineHeight: 1.6 }}>
+          Link a Google Sheets spreadsheet to start tracking contacts, open rates, and replies in real time.
+        </p>
+      </div>
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start',
+        background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12,
+        padding: '20px 28px', maxWidth: 380,
+      }}>
+        {[
+          { n: '1', text: 'Open your Google Sheet' },
+          { n: '2', text: 'Copy the URL or the ID from the address bar' },
+          { n: '3', text: 'Paste it below — we\'ll handle the rest' },
+        ].map(s => (
+          <div key={s.n} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 26, height: 26, borderRadius: '50%',
+              background: 'var(--accent)22', color: 'var(--accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 700, flexShrink: 0,
+            }}>{s.n}</div>
+            <span style={{ fontSize: 13, color: 'var(--text)' }}>{s.text}</span>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={onAddSource}
+        style={{
+          background: 'var(--accent)', color: 'white', border: 'none',
+          borderRadius: 10, padding: '14px 32px', fontSize: 15, fontWeight: 700,
+          cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+        }}
+      >
+        + Connect a Sheet
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
   const { contacts, loading, error, lastUpdated, refresh, repMetrics, industryMetrics, funnel, stats } = useSheets(activeSource.sheetId, activeSource.sheetTab, 30000);
-  const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders'>('senders');
+  const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders'>('overview');
   const [showSources, setShowSources] = useState(false);
   const api = useApi(user);
 
@@ -66,18 +139,10 @@ export default function App() {
 
   if (!user) return <LoginPage loginWithKeyword={loginWithKeyword} loginWithGoogle={loginWithGoogle} />;
 
-  if (loading) return (
+  if (loading && contacts.length === 0) return (
     <div className="loading">
       <div className="loading-spinner" />
       <p>Loading pipeline data...</p>
-    </div>
-  );
-
-  if (error) return (
-    <div className="error">
-      <h2>⚠️ Error loading data</h2>
-      <p>{error}</p>
-      <button onClick={refresh}>Retry</button>
     </div>
   );
 
@@ -115,8 +180,8 @@ export default function App() {
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
-            <button className="source-manage-btn" onClick={() => setShowSources(true)} title="Manage sources">
-              ⚙
+            <button className="source-manage-btn" onClick={() => setShowSources(true)} title="Add or manage campaign sheets">
+              + Sheet
             </button>
           </div>
           <span className="last-updated">
@@ -167,10 +232,53 @@ export default function App() {
       {/* Tab Content */}
       <main className="main">
 
+        {/* ── INLINE ERROR BANNER ── */}
+        {error && (() => {
+          const { message, action } = friendlySheetError(error);
+          return (
+            <div style={{
+              background: '#f871711a', border: '1px solid #f8717144', borderRadius: 10,
+              padding: '14px 20px', marginBottom: 16, display: 'flex', gap: 14,
+              alignItems: 'flex-start',
+            }}>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>⚠</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#f87171', marginBottom: 2 }}>{message}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{action}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => setShowSources(true)}
+                  style={{
+                    background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 7,
+                    color: 'var(--text)', padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  Open Settings
+                </button>
+                <button
+                  onClick={refresh}
+                  style={{
+                    background: 'none', border: '1px solid var(--border)', borderRadius: 7,
+                    color: 'var(--text-secondary)', padding: '6px 12px', fontSize: 12,
+                    cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ── OVERVIEW ── */}
         {activeTab === 'overview' && (
           <div className="tab-content">
-            <div className="charts-row">
+            {!error && contacts.length === 0 && !loading && (
+              <EmptyState onAddSource={() => setShowSources(true)} />
+            )}
+            {(contacts.length > 0 || error) && <div className="charts-row">
               {/* Funnel */}
               <div className="chart-card wide">
                 <h2>Pipeline Funnel</h2>
@@ -212,28 +320,29 @@ export default function App() {
                   })}
                 </div>
               </div>
-            </div>
+            </div>}
 
-            {/* Industry performance bar */}
-            <div className="chart-card full">
-              <h2>Reply Rate by Industry</h2>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={industryMetrics} layout="vertical" margin={{ left: 20, right: 40 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
-                  <XAxis type="number" unit="%" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
-                  <YAxis type="category" dataKey="industry" width={160} tick={{ fill: 'var(--text)', fontSize: 13 }} />
-                  <Tooltip
-                    contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}
-                    formatter={(val) => [`${val}%`]}
-                  />
-                  <Bar dataKey="replyRate" radius={[0, 6, 6, 0]} name="Reply Rate">
-                    {industryMetrics.map((entry, index) => (
-                      <Cell key={index} fill={INDUSTRY_COLORS[entry.industry] || '#6366f1'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {(contacts.length > 0 || error) && (
+              <div className="chart-card full">
+                <h2>Reply Rate by Industry</h2>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={industryMetrics} layout="vertical" margin={{ left: 20, right: 40 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                    <XAxis type="number" unit="%" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
+                    <YAxis type="category" dataKey="industry" width={160} tick={{ fill: 'var(--text)', fontSize: 13 }} />
+                    <Tooltip
+                      contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}
+                      formatter={(val) => [`${val}%`]}
+                    />
+                    <Bar dataKey="replyRate" radius={[0, 6, 6, 0]} name="Reply Rate">
+                      {industryMetrics.map((entry, index) => (
+                        <Cell key={index} fill={INDUSTRY_COLORS[entry.industry] || '#6366f1'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
         )}
 

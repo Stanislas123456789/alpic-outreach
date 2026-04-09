@@ -1,6 +1,51 @@
 import { useState, useEffect } from 'react';
 import type { PreviewContact } from '../hooks/useApi';
 
+function friendlyApiError(raw: string): { message: string; steps: string[] } {
+  const r = raw.toLowerCase();
+  if (r.includes('pem') || r.includes('base64') || r.includes('key') || r.includes('credentials')) {
+    return {
+      message: 'Gmail credentials are invalid or expired.',
+      steps: [
+        'Go to the Senders tab',
+        'Click "Connect →" next to your email address',
+        'Complete the Gmail authorization flow',
+      ],
+    };
+  }
+  if (r.includes('unreachable') || r.includes('failed to fetch') || r.includes('econnrefused') || r.includes('networkerror')) {
+    return {
+      message: 'The send server is currently offline.',
+      steps: [
+        'Make sure the Alpic API server is running',
+        'Contact your admin if this persists',
+      ],
+    };
+  }
+  if (r.includes('403') || r.includes('unauthorized') || r.includes('forbidden')) {
+    return {
+      message: 'Not authorized to use this sender account.',
+      steps: [
+        'Make sure you are signed in with your @alpic.ai account',
+        'Reconnect your Gmail in the Senders tab',
+      ],
+    };
+  }
+  if (r.includes('no pending') || r.includes('0 contacts')) {
+    return {
+      message: 'No pending contacts found in this sheet.',
+      steps: [
+        'Check that your sheet has contacts with "pending" status',
+        'Switch to a different campaign sheet using the selector in the header',
+      ],
+    };
+  }
+  return {
+    message: 'Something went wrong loading the preview.',
+    steps: ['Make sure the API server is running', 'Check that your sheet credentials are configured'],
+  };
+}
+
 interface EmailOverride {
   subject: string;
   body: string;
@@ -94,14 +139,30 @@ export default function SendPreviewModal({ sheetId, sheetTab, onConfirm, onClose
             </div>
           )}
 
-          {error && (
-            <div style={styles.center}>
-              <p style={{ color: '#f87171' }}>⚠ {error}</p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 8 }}>
-                Make sure the API server is running and the sheet credentials are set.
-              </p>
-            </div>
-          )}
+          {error && (() => {
+            const { message, steps } = friendlyApiError(error);
+            return (
+              <div style={{ ...styles.center, alignItems: 'flex-start', padding: '32px 40px' }}>
+                <div style={{
+                  background: '#f871711a', border: '1px solid #f8717133', borderRadius: 10,
+                  padding: '20px 24px', maxWidth: 480, width: '100%',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                    <span style={{ fontSize: 20 }}>⚠</span>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: '#f87171' }}>{message}</span>
+                  </div>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+                    To fix this, follow these steps:
+                  </p>
+                  <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {steps.map((step, i) => (
+                      <li key={i} style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{step}</li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+            );
+          })()}
 
           {!loading && !error && contacts.length === 0 && (
             <div style={styles.center}>

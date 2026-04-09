@@ -79,6 +79,44 @@ app.use('/api/pipeline', pipelineRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
+// GET /api/diag — diagnose credentials without exposing secrets
+app.get('/api/diag', async (_req, res) => {
+  const results: Record<string, string> = {};
+
+  // Check env vars presence
+  results.GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID ? 'set' : 'MISSING';
+  results.GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET ? 'set' : 'MISSING';
+  results.GOOGLE_SERVICE_ACCOUNT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || 'MISSING';
+  results.GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID ? 'set' : 'MISSING';
+
+  // Check PEM key format
+  const rawKey = process.env.GOOGLE_PRIVATE_KEY || '';
+  if (!rawKey) {
+    results.GOOGLE_PRIVATE_KEY = 'MISSING';
+  } else {
+    const hasBegin = rawKey.includes('-----BEGIN');
+    const hasEnd = rawKey.includes('-----END');
+    const hasLiteralN = rawKey.includes('\\n');
+    const hasRealNewline = rawKey.includes('\n');
+    results.GOOGLE_PRIVATE_KEY = `present (${rawKey.length} chars, BEGIN:${hasBegin}, END:${hasEnd}, literal\\n:${hasLiteralN}, realNewline:${hasRealNewline})`;
+  }
+
+  // Test Google Sheets connection
+  try {
+    const { getPendingContacts } = await import('../../pipeline/src/sheets');
+    const contacts = await getPendingContacts(1);
+    results.sheetsTest = `OK — ${contacts.length} pending contact(s) fetched`;
+  } catch (err: any) {
+    results.sheetsTest = `ERROR: ${err.message}`;
+  }
+
+  // Test senders
+  const senders = readSenders();
+  results.senders = `${senders.length} stored, ${senders.filter(s => !!s.refreshToken).length} with tokens`;
+
+  res.json(results);
+});
+
 // ─── Startup ──────────────────────────────────────────────────────────────────
 
 // Wire token rotation → update senders.json (not .env)

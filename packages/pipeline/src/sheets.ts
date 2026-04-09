@@ -13,28 +13,68 @@ const FIRST_TRACKING_COL = 'R'; // Column 18 = R
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
-function getAuth() {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const key = process.env.GOOGLE_PRIVATE_KEY
-    ?.replace(/\\n/g, '\n')           // literal \n → real newline
-    ?.split('\n')
-    .map(l => l.trim())               // strip spaces Railway editor adds mid-line
-    .join('\n');
+/**
+ * Robustly parse the GOOGLE_PRIVATE_KEY env var regardless of how it was stored.
+ * Handles: literal \n sequences, actual newlines, Windows CRLF, editor padding,
+ * surrounding quotes (JSON-stringified), and stray blank lines.
+ */
+function parsePemKey(raw: string): string {
+  let key = raw.trim();
 
-  if (email && key) {
-    // Service Account (recommended for pipeline)
-    return new google.auth.JWT({
-      email,
-      key,
-      scopes: [
-        'https://www.googleapis.com/auth/spreadsheets',
-      ],
-    });
+  // Remove surrounding quotes if the value was JSON-stringified before storing
+  if ((key.startsWith('"') && key.endsWith('"')) ||
+      (key.startsWith("'") && key.endsWith("'"))) {
+    try {
+      key = JSON.parse(key);
+    } catch {
+      key = key.slice(1, -1);
+    }
   }
 
-  throw new Error(
-    'Missing Google auth credentials. Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY in .env'
-  );
+  // Convert literal \n sequences → real newlines (common in .env / Vercel UI)
+  key = key.replace(/\\n/g, '\n');
+
+  // Normalize line endings (Windows CRLF, old Mac CR)
+  key = key.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Trim whitespace from every line, then drop blank lines.
+  // PEM uses header/footer markers as delimiters — blank lines are never significant
+  // and can cause "PEM_read_bio_exbad base64 decode" if left in.
+  key = key
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0)
+    .join('\n');
+
+  if (!key.includes('-----BEGIN') || !key.includes('-----END')) {
+    throw new Error(
+      'GOOGLE_PRIVATE_KEY does not look like a valid PEM key. ' +
+      'Make sure you copied the full private key including the -----BEGIN / -----END lines, ' +
+      'and that it is stored as a single env var (with \\n between lines if your host requires it).'
+    );
+  }
+
+  return key;
+}
+
+function getAuth() {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const rawKey = process.env.GOOGLE_PRIVATE_KEY;
+
+  if (!email || !rawKey) {
+    throw new Error(
+      'Missing Google service account credentials. ' +
+      'Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY in your environment variables.'
+    );
+  }
+
+  const key = parsePemKey(rawKey);
+
+  return new google.auth.JWT({
+    email,
+    key,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
 }
 
 // ─── Sheets client ───────────────────────────────────────────────────────────
