@@ -3,12 +3,7 @@ import { readSenders, syncSentCounts } from '../senders';
 
 const router = Router();
 
-let pipelineRunning = false;
-let lastRunAt: string | null = null;
-let lastRunResult: 'success' | 'error' | null = null;
-let lastRunError: string | null = null;
-
-// ─── Progress tracking ────────────────────────────────────────────────────────
+// ─── Progress event type ──────────────────────────────────────────────────────
 
 export interface ProgressEvent {
   type: 'start' | 'sending' | 'sent' | 'failed' | 'invalid' | 'skipped' | 'done';
@@ -23,24 +18,84 @@ export interface ProgressEvent {
   timestamp: string;
 }
 
-let progressLog: ProgressEvent[] = [];
-let progressTotal = 0;
+// ─── Campaign state ───────────────────────────────────────────────────────────
 
-function pushProgress(event: ProgressEvent) {
-  progressLog.push(event);
+interface Campaign {
+  id: string;
+  sheetId: string;
+  sheetTab: string;
+  startedAt: string | null;
+  scheduledAt: string | null;   // ISO string for scheduled start, null = run now
+  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled';
+  sent: number;
+  total: number;
+  log: ProgressEvent[];
+  error?: string;
+  scheduledTimer?: ReturnType<typeof setTimeout>; // internal, not serialized
 }
 
-// POST /api/pipeline/run — trigger a send batch immediately
-// Body: { excludeIds?: string[], sheetId?: string, tab?: string, emailOverrides?: Record<string, { subject: string, body: string }> }
-router.post('/run', async (req: Request, res: Response) => {
-  if (pipelineRunning) {
-    res.status(409).json({
-      error: 'Pipeline already running',
-      lastRunAt,
-    });
-    return;
-  }
+const campaigns = new Map<string, Campaign>();
 
+// Backward-compat helpers
+function getLastCampaign(): Campaign | undefined {
+  let last: Campaign | undefined;
+  for (const c of campaigns.values()) {
+    if (!last) { last = c; continue; }
+    const aTime = c.startedAt || c.scheduledAt || '';
+    const bTime = last.startedAt || last.scheduledAt || '';
+    if (aTime > bTime) last = c;
+  }
+  return last;
+}
+
+// ─── Start a campaign (shared logic) ─────────────────────────────────────────
+
+async function executeCampaign(
+  campaign: Campaign,
+  excludeIds: string[],
+  emailOverrides: Record<string, { subject: string; body: string }>,
+) {
+  campaign.status = 'running';
+  campaign.startedAt = new Date().toISOString();
+
+  try {
+    const { runPipeline } = await import('../../../pipeline/src/index');
+    const { setSenders, getSenders } = await import('../../../pipeline/src/gmail');
+
+    const senders = readSenders().filter(s => !!s.refreshToken);
+    setSenders(senders.map(s => ({ ...s })));
+
+    await runPipeline({
+      excludeIds,
+      sheetId: campaign.sheetId || undefined,
+      sheetTab: campaign.sheetTab || undefined,
+      emailOverrides,
+      onProgress: (event: ProgressEvent) => {
+        campaign.log.push(event);
+        if (event.type === 'start' && event.total != null) {
+          campaign.total = event.total;
+        }
+        if (event.type === 'sent') {
+          campaign.sent += 1;
+        }
+      },
+    });
+
+    syncSentCounts(getSenders());
+    campaign.status = 'done';
+    console.log(`[api] Campaign ${campaign.id} complete`);
+  } catch (err: any) {
+    campaign.status = 'error';
+    campaign.error = err.message;
+    console.error(`[api] Campaign ${campaign.id} error:`, err.message);
+  } finally {
+    campaign.log.push({ type: 'done', timestamp: new Date().toISOString() });
+  }
+}
+
+// POST /api/pipeline/run — trigger a send batch immediately or schedule it
+// Body: { excludeIds?, sheetId?, tab?, emailOverrides?, scheduledAt?, name? }
+router.post('/run', async (req: Request, res: Response) => {
   const senders = readSenders().filter(s => !!s.refreshToken);
   if (senders.length === 0) {
     res.status(400).json({
@@ -50,60 +105,105 @@ router.post('/run', async (req: Request, res: Response) => {
   }
 
   const excludeIds: string[] = req.body?.excludeIds || [];
-  const sheetId: string | undefined = req.body?.sheetId;
-  const sheetTab: string | undefined = req.body?.tab;
+  const sheetId: string = req.body?.sheetId || '';
+  const sheetTab: string = req.body?.tab || '';
   const emailOverrides: Record<string, { subject: string; body: string }> = req.body?.emailOverrides || {};
+  const scheduledAt: string | undefined = req.body?.scheduledAt;
 
-  // Reset progress log
-  progressLog = [];
-  progressTotal = 0;
+  // Check if another campaign is already running for the same sheetId+sheetTab
+  for (const c of campaigns.values()) {
+    if (c.status === 'running' && c.sheetId === sheetId && c.sheetTab === sheetTab) {
+      res.status(409).json({
+        error: 'A campaign is already running for this sheet',
+        campaignId: c.id,
+      });
+      return;
+    }
+  }
 
-  // Respond immediately — pipeline runs async
-  res.json({
-    ok: true,
-    message: 'Pipeline batch started',
-    senderCount: senders.length,
-    excluded: excludeIds.length,
-  });
+  const campaignId = Date.now().toString(36);
+  const campaign: Campaign = {
+    id: campaignId,
+    sheetId,
+    sheetTab,
+    startedAt: null,
+    scheduledAt: scheduledAt || null,
+    status: 'scheduled',
+    sent: 0,
+    total: 0,
+    log: [],
+  };
 
-  pipelineRunning = true;
-  lastRunAt = new Date().toISOString();
+  campaigns.set(campaignId, campaign);
 
-  try {
-    const { runPipeline } = await import('../../../pipeline/src/index');
-    const { setSenders, getSenders } = await import('../../../pipeline/src/gmail');
+  const now = new Date();
+  const scheduleTime = scheduledAt ? new Date(scheduledAt) : null;
+  const isInFuture = scheduleTime && scheduleTime > now;
 
-    setSenders(senders.map(s => ({ ...s })));
-    await runPipeline({
-      excludeIds,
-      sheetId,
-      sheetTab,
-      emailOverrides,
-      onProgress: pushProgress,
+  if (isInFuture) {
+    const delay = scheduleTime.getTime() - now.getTime();
+    campaign.scheduledTimer = setTimeout(() => {
+      executeCampaign(campaign, excludeIds, emailOverrides);
+    }, delay);
+
+    res.json({
+      ok: true,
+      campaignId,
+      message: `Campaign scheduled for ${scheduledAt}`,
+    });
+  } else {
+    // Run immediately
+    campaign.scheduledAt = null;
+    res.json({
+      ok: true,
+      campaignId,
+      message: 'Pipeline batch started',
+      senderCount: senders.length,
+      excluded: excludeIds.length,
     });
 
-    syncSentCounts(getSenders());
-
-    lastRunResult = 'success';
-    lastRunError = null;
-    console.log('[api] Pipeline batch complete');
-  } catch (err: any) {
-    lastRunResult = 'error';
-    lastRunError = err.message;
-    console.error('[api] Pipeline batch error:', err.message);
-  } finally {
-    pipelineRunning = false;
-    pushProgress({ type: 'done', timestamp: new Date().toISOString() });
+    // Run async after responding
+    executeCampaign(campaign, excludeIds, emailOverrides);
   }
 });
 
 // GET /api/pipeline/progress — poll current send progress
-router.get('/progress', (_req: Request, res: Response) => {
+// Optional ?campaignId=xxx — return specific campaign, or most recent if omitted
+router.get('/progress', (req: Request, res: Response) => {
+  const campaignId = req.query.campaignId as string | undefined;
+  const campaign = campaignId ? campaigns.get(campaignId) : getLastCampaign();
+
+  if (!campaign) {
+    res.json({ running: false, total: 0, log: [] });
+    return;
+  }
+
   res.json({
-    running: pipelineRunning,
-    total: progressTotal,
-    log: progressLog,
+    running: campaign.status === 'running',
+    total: campaign.total,
+    log: campaign.log,
+    campaignId: campaign.id,
+    sent: campaign.sent,
+    status: campaign.status,
   });
+});
+
+// GET /api/pipeline/campaigns — list all campaigns
+router.get('/campaigns', (_req: Request, res: Response) => {
+  const list = Array.from(campaigns.values())
+    .map(({ scheduledTimer, ...c }) => c)  // strip internal timer
+    .sort((a, b) => (b.startedAt || b.scheduledAt || '').localeCompare(a.startedAt || a.scheduledAt || ''));
+  res.json(list);
+});
+
+// DELETE /api/pipeline/campaigns/:id — cancel a scheduled campaign
+router.delete('/campaigns/:id', (req: Request, res: Response) => {
+  const c = campaigns.get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Campaign not found' });
+  if (c.status !== 'scheduled') return res.status(409).json({ error: 'Can only cancel scheduled campaigns' });
+  clearTimeout(c.scheduledTimer);
+  c.status = 'cancelled';
+  res.json({ ok: true });
 });
 
 // GET /api/pipeline/preview?sheetId=xxx&tab=TRAVEL&limit=5
@@ -139,14 +239,17 @@ router.get('/preview', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/pipeline/status — current pipeline state + per-sender stats
+// GET /api/pipeline/status — current pipeline state + per-sender stats (backward compat)
 router.get('/status', (_req: Request, res: Response) => {
   const senders = readSenders();
+  const anyRunning = Array.from(campaigns.values()).some(c => c.status === 'running');
+  const last = getLastCampaign();
+
   res.json({
-    running: pipelineRunning,
-    lastRunAt,
-    lastRunResult,
-    lastRunError,
+    running: anyRunning,
+    lastRunAt: last?.startedAt || null,
+    lastRunResult: last ? (last.status === 'done' ? 'success' : last.status === 'error' ? 'error' : null) : null,
+    lastRunError: last?.error || null,
     senders: senders.map(s => ({
       email: s.email,
       name: s.name,

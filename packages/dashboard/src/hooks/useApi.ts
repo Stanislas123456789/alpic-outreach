@@ -45,6 +45,9 @@ export interface PipelineProgress {
   running: boolean;
   total: number;
   log: ProgressEvent[];
+  campaignId?: string;
+  sent?: number;
+  status?: string;
 }
 
 export interface PipelineStatus {
@@ -53,6 +56,19 @@ export interface PipelineStatus {
   lastRunResult: 'success' | 'error' | null;
   lastRunError: string | null;
   senders: { email: string; name: string; sentToday: number; dailyLimit: number; remaining: number }[];
+}
+
+export interface Campaign {
+  id: string;
+  sheetId: string;
+  sheetTab: string;
+  startedAt: string | null;
+  scheduledAt: string | null;
+  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled';
+  sent: number;
+  total: number;
+  log: ProgressEvent[];
+  error?: string;
 }
 
 export function useApi(user: AuthUser | null) {
@@ -104,7 +120,7 @@ export function useApi(user: AuthUser | null) {
     sheetId?: string;
     tab?: string;
     emailOverrides?: Record<string, { subject: string; body: string }>;
-  }) => {
+  }): Promise<{ campaignId?: string }> => {
     setLoading(true);
     setRunMessage(null);
     setApiError(null);
@@ -118,18 +134,54 @@ export function useApi(user: AuthUser | null) {
       if (res.ok) {
         setRunMessage(data.message || 'Batch started!');
         setTimeout(fetchPipelineStatus, 2000);
+        return { campaignId: data.campaignId };
       } else {
         setApiError(data.error || 'Failed to start pipeline');
+        return {};
       }
     } catch (err: any) {
       setApiError('API unreachable. Is the API server running?');
+      return {};
     } finally {
       setLoading(false);
     }
   }, [user?.email, fetchPipelineStatus]);
 
-  const pollProgress = useCallback(async (): Promise<PipelineProgress> => {
-    const res = await fetch(`${API_URL}/api/pipeline/progress`, { headers: authHeaders });
+  const scheduleCampaign = useCallback(async (opts: {
+    excludeIds?: string[];
+    sheetId?: string;
+    tab?: string;
+    emailOverrides?: Record<string, { subject: string; body: string }>;
+    scheduledAt: string;
+  }): Promise<{ campaignId?: string }> => {
+    setLoading(true);
+    setRunMessage(null);
+    setApiError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/pipeline/run`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify(opts),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setRunMessage(data.message || 'Campaign scheduled!');
+        return { campaignId: data.campaignId };
+      } else {
+        setApiError(data.error || 'Failed to schedule campaign');
+        return {};
+      }
+    } catch (err: any) {
+      setApiError('API unreachable. Is the API server running?');
+      return {};
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.email]);
+
+  const pollProgress = useCallback(async (campaignId?: string): Promise<PipelineProgress> => {
+    const params = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : '';
+    const res = await fetch(`${API_URL}/api/pipeline/progress${params}`, { headers: authHeaders });
     if (!res.ok) throw new Error('Failed to fetch progress');
     return res.json();
   }, [user?.email]);
@@ -153,9 +205,51 @@ export function useApi(user: AuthUser | null) {
     runMessage,
     apiError,
     runPipeline,
+    scheduleCampaign,
     previewContacts,
     pollProgress,
     getConnectUrl,
     refresh: () => { fetchSenders(); fetchPipelineStatus(); },
   };
+}
+
+export function useCampaigns(user: AuthUser | null) {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+
+  const authHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(user?.email ? { 'X-Auth-Email': user.email } : {}),
+  };
+
+  const fetchCampaigns = useCallback(async () => {
+    if (!user?.email?.endsWith('@alpic.ai')) return;
+    try {
+      const res = await fetch(`${(import.meta.env.VITE_API_URL || 'http://localhost:4001')}/api/pipeline/campaigns`, { headers: authHeaders });
+      if (res.ok) setCampaigns(await res.json());
+    } catch {
+      // silent
+    }
+  }, [user?.email]);
+
+  const cancelCampaign = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`${(import.meta.env.VITE_API_URL || 'http://localhost:4001')}/api/pipeline/campaigns/${id}`, {
+        method: 'DELETE',
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        setCampaigns(prev => prev.map(c => c.id === id ? { ...c, status: 'cancelled' as const } : c));
+      }
+    } catch {
+      // silent
+    }
+  }, [user?.email]);
+
+  useEffect(() => {
+    fetchCampaigns();
+    const interval = setInterval(fetchCampaigns, 5000);
+    return () => clearInterval(interval);
+  }, [fetchCampaigns]);
+
+  return { campaigns, cancelCampaign, refetch: fetchCampaigns };
 }

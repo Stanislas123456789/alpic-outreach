@@ -221,29 +221,38 @@ export async function updateContactStatus(
     firstOpenAt: string;
     repliedAt: string;
     bounceReason: string;
-  }>
+  }>,
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
 ): Promise<void> {
   const sheets = getSheetsClient();
 
-  // Build the range for tracking columns (R:Z = cols 18-26)
-  const trackingValues = [
-    updates.status ?? '',
-    updates.assignedTo ?? '',
-    updates.sentAt ?? '',
-    updates.messageId ?? '',
-    updates.threadId ?? '',
-    updates.openCount?.toString() ?? '',
-    updates.firstOpenAt ?? '',
-    updates.repliedAt ?? '',
-    updates.bounceReason ?? '',
-  ];
+  const colMap: Record<string, string> = {
+    status: 'R',
+    assignedTo: 'S',
+    sentAt: 'T',
+    messageId: 'U',
+    threadId: 'V',
+    openCount: 'W',
+    firstOpenAt: 'X',
+    repliedAt: 'Y',
+    bounceReason: 'Z',
+  };
 
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!${FIRST_TRACKING_COL}${rowIndex}`,
-    valueInputOption: 'RAW',
+  const data = (Object.keys(updates) as (keyof typeof updates)[])
+    .filter(key => updates[key] !== undefined && colMap[key])
+    .map(key => ({
+      range: `${sheetTab}!${colMap[key]}${rowIndex}`,
+      values: [[updates[key] !== undefined ? String(updates[key]) : '']],
+    }));
+
+  if (data.length === 0) return;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId,
     requestBody: {
-      values: [trackingValues],
+      valueInputOption: 'RAW',
+      data,
     },
   });
 }
@@ -253,24 +262,26 @@ export async function updateContactStatus(
 export async function incrementOpenCount(
   rowIndex: number,
   currentCount: number,
-  firstOpenAt?: string
+  firstOpenAt?: string,
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
 ): Promise<void> {
   const sheets = getSheetsClient();
   const newCount = currentCount + 1;
 
   // openCount is column W (col 23 = index 22), firstOpenAt is column X
   await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: SHEET_ID,
+    spreadsheetId: sheetId,
     requestBody: {
       valueInputOption: 'RAW',
       data: [
         {
-          range: `${SHEET_TAB}!W${rowIndex}`,
+          range: `${sheetTab}!W${rowIndex}`,
           values: [[newCount.toString()]],
         },
         ...(firstOpenAt && currentCount === 0
           ? [{
-              range: `${SHEET_TAB}!X${rowIndex}`,
+              range: `${sheetTab}!X${rowIndex}`,
               values: [[firstOpenAt]],
             }]
           : []),

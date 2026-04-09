@@ -63,6 +63,8 @@ async function processContact(
   contact: Contact,
   emailOverrides: Record<string, { subject: string; body: string }>,
   onProgress?: (e: ProgressEvent) => void,
+  sheetId?: string,
+  sheetTab?: string,
 ): Promise<void> {
   log(`Processing: ${contact.email} (${contact.company})`);
 
@@ -82,7 +84,7 @@ async function processContact(
     await updateContactStatus(contact.rowIndex, {
       status: 'invalid',
       bounceReason: validation.reason,
-    });
+    }, sheetId, sheetTab);
     onProgress?.({
       type: 'invalid',
       contactId: contact.id,
@@ -131,7 +133,7 @@ async function processContact(
     await updateContactStatus(contact.rowIndex, {
       status: 'sending',
       assignedTo: sender.email,
-    });
+    }, sheetId, sheetTab);
   }
 
   // 7. Send
@@ -147,7 +149,7 @@ async function processContact(
         sentAt: dayjs().toISOString(),
         messageId: result.messageId,
         threadId: result.threadId,
-      });
+      }, sheetId, sheetTab);
     }
     log(`Sent to ${contact.firstName} ${contact.lastName} @ ${contact.company} via ${sender.email}`, 'success');
     onProgress?.({
@@ -164,7 +166,7 @@ async function processContact(
       await updateContactStatus(contact.rowIndex, {
         status: result.bounced ? 'bounced' : 'pending',
         bounceReason: result.error?.slice(0, 100),
-      });
+      }, sheetId, sheetTab);
     }
     log(`Failed: ${contact.email} — ${result.error}`, 'error');
     onProgress?.({
@@ -230,7 +232,7 @@ export async function runPipeline(options?: {
   for (let i = 0; i < contacts.length; i++) {
     const contact = contacts[i];
 
-    await processContact(contact, emailOverrides, onProgress);
+    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab);
 
     // Delay between sends (skip delay after last email)
     if (i < contacts.length - 1 && !DRY_RUN) {

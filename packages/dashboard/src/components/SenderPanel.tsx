@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { AuthUser } from '../hooks/useAuth';
-import type { SenderStatus, PipelineStatus, PreviewContact, PipelineProgress } from '../hooks/useApi';
+import type { SenderStatus, PipelineStatus, PreviewContact, PipelineProgress, Campaign } from '../hooks/useApi';
+import { useCampaigns } from '../hooks/useApi';
 import type { SheetSource } from '../hooks/useConfig';
 import SendPreviewModal from './SendPreviewModal';
 import SendLiveView from './SendLiveView';
@@ -12,16 +13,146 @@ interface Props {
   loading: boolean;
   runMessage: string | null;
   apiError: string | null;
-  onRunPipeline: (opts?: { excludeIds?: string[]; sheetId?: string; tab?: string; emailOverrides?: Record<string, { subject: string; body: string }> }) => void;
+  onRunPipeline: (opts?: { excludeIds?: string[]; sheetId?: string; tab?: string; emailOverrides?: Record<string, { subject: string; body: string }> }) => Promise<{ campaignId?: string }> | void;
   onRefresh: () => void;
   getConnectUrl: (email: string) => string;
   fetchPreview: (sheetId?: string, tab?: string, limit?: number) => Promise<PreviewContact[]>;
-  pollProgress: () => Promise<PipelineProgress>;
+  pollProgress: (campaignId?: string) => Promise<PipelineProgress>;
   sources: SheetSource[];
   activeSheetId?: string;
   activeSheetTab?: string;
   onManageSources: () => void;
 }
+
+// ── Relative time helper ─────────────────────────────────────────────────────
+
+function formatRelativeTime(isoString: string): string {
+  const diff = new Date(isoString).getTime() - Date.now();
+  if (diff <= 0) return 'Starting soon';
+  const totalSeconds = Math.floor(diff / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return `Starts in ${hours}h ${minutes}m`;
+  return `Starts in ${minutes}m`;
+}
+
+function formatCompletedTime(isoString: string | null): string {
+  if (!isoString) return '';
+  return new Date(isoString).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+// ── Campaign card ─────────────────────────────────────────────────────────────
+
+function CampaignCard({
+  campaign,
+  onCancel,
+  onViewLive,
+}: {
+  campaign: Campaign;
+  onCancel: (id: string) => void;
+  onViewLive: () => void;
+}) {
+  const [relativeTime, setRelativeTime] = useState(() =>
+    campaign.scheduledAt ? formatRelativeTime(campaign.scheduledAt) : ''
+  );
+
+  useEffect(() => {
+    if (campaign.status !== 'scheduled' || !campaign.scheduledAt) return;
+    const interval = setInterval(() => {
+      setRelativeTime(formatRelativeTime(campaign.scheduledAt!));
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [campaign.status, campaign.scheduledAt]);
+
+  const statusBadge = {
+    scheduled: { icon: '🟡', label: 'Scheduled', color: '#f59e0b', bg: '#f59e0b22' },
+    running: { icon: '🟢', label: 'Running', color: '#34d399', bg: '#34d39922' },
+    done: { icon: '✅', label: 'Done', color: '#34d399', bg: '#34d39922' },
+    error: { icon: '❌', label: 'Error', color: '#f87171', bg: '#f8717122' },
+    cancelled: { icon: '⛔', label: 'Cancelled', color: '#94a3b8', bg: '#94a3b822' },
+  }[campaign.status];
+
+  return (
+    <div style={{
+      background: 'var(--bg)',
+      border: '1px solid var(--border)',
+      borderRadius: 10,
+      padding: '12px 16px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 14,
+    }}>
+      {/* Sheet tab name */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+            {campaign.sheetTab || 'Default Sheet'}
+          </span>
+          <span style={{
+            background: statusBadge.bg,
+            color: statusBadge.color,
+            borderRadius: 5,
+            padding: '2px 7px',
+            fontSize: 11,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+          }}>
+            {campaign.status === 'running' && (
+              <span style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: '#34d399',
+                display: 'inline-block',
+                animation: 'pulse 1.5s ease-in-out infinite',
+              }} />
+            )}
+            {statusBadge.icon} {statusBadge.label}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+          {campaign.status === 'running' && (
+            <span>{campaign.sent}/{campaign.total} sent</span>
+          )}
+          {campaign.status === 'scheduled' && campaign.scheduledAt && (
+            <span>{relativeTime}</span>
+          )}
+          {campaign.status === 'done' && campaign.startedAt && (
+            <span>Completed {formatCompletedTime(campaign.startedAt)}</span>
+          )}
+          {campaign.status === 'error' && campaign.startedAt && (
+            <span>Failed {formatCompletedTime(campaign.startedAt)}</span>
+          )}
+          {campaign.status === 'cancelled' && (
+            <span>Cancelled</span>
+          )}
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+        {campaign.status === 'running' && (
+          <button
+            style={styles.campaignBtn}
+            onClick={onViewLive}
+          >
+            View Live
+          </button>
+        )}
+        {campaign.status === 'scheduled' && (
+          <button
+            style={{ ...styles.campaignBtn, color: '#f87171', borderColor: '#f8717144' }}
+            onClick={() => onCancel(campaign.id)}
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 
 export default function SenderPanel({
   user,
@@ -46,6 +177,11 @@ export default function SenderPanel({
   const [showPreview, setShowPreview] = useState(false);
   const [showLive, setShowLive] = useState(false);
   const [showSenders, setShowSenders] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [scheduleValue, setScheduleValue] = useState('');
+  const [activeCampaignId, setActiveCampaignId] = useState<string | undefined>(undefined);
+
+  const { campaigns, cancelCampaign } = useCampaigns(user);
 
   useEffect(() => {
     if (pipelineStatus?.running) setShowLive(true);
@@ -70,14 +206,69 @@ export default function SenderPanel({
     setShowPreview(true);
   }
 
+  async function handleConfirm(
+    excludeIds: string[],
+    emailOverrides: Record<string, { subject: string; body: string }>
+  ) {
+    setShowPreview(false);
+
+    if (showSchedule && scheduleValue) {
+      const result = await onRunPipeline({
+        excludeIds,
+        sheetId: pickedSheetId,
+        tab: pickedSheetTab,
+        emailOverrides,
+        // Pass scheduledAt via cast since onRunPipeline might not have it in opts type
+        // — it's actually accepted by the API route
+        ...(scheduleValue ? { scheduledAt: new Date(scheduleValue).toISOString() } : {}),
+      } as any);
+      // Scheduled: don't show live view
+    } else {
+      const result = await onRunPipeline({ excludeIds, sheetId: pickedSheetId, tab: pickedSheetTab, emailOverrides });
+      const campaignId = (result as any)?.campaignId;
+      if (campaignId) setActiveCampaignId(campaignId);
+      setShowLive(true);
+    }
+  }
+
   const userSender = senders.find(s => s.email === user.email);
   const isConnected = !!userSender?.connected;
   const hasAnySender = senders.some(s => s.connected);
   const totalRemaining = senders.filter(s => s.connected).reduce((sum, s) => sum + s.remaining, 0);
   const totalSentToday = senders.filter(s => s.connected).reduce((sum, s) => sum + s.sentToday, 0);
 
+  const activePollProgress = activeCampaignId
+    ? () => pollProgress(activeCampaignId)
+    : () => pollProgress();
+
   return (
     <div style={styles.wrap}>
+
+      {/* ── Campaigns section ─────────────────────────────────── */}
+      <div style={styles.campaignsSection}>
+        <div style={styles.campaignsSectionHeader}>
+          <h3 style={styles.campaignsSectionTitle}>Campaigns</h3>
+        </div>
+        {campaigns.length === 0 ? (
+          <div style={styles.campaignsEmpty}>
+            No campaigns yet — launch your first one below
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+            {campaigns.map(c => (
+              <CampaignCard
+                key={c.id}
+                campaign={c}
+                onCancel={cancelCampaign}
+                onViewLive={() => {
+                  setActiveCampaignId(c.id);
+                  setShowLive(true);
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* ── HERO: Launch Campaign ─────────────────────────────── */}
       <div style={styles.hero}>
@@ -121,6 +312,31 @@ export default function SenderPanel({
               <button style={styles.liveBtn} onClick={() => setShowLive(true)}>
                 📡 View Live Feed
               </button>
+            )}
+          </div>
+
+          {/* Schedule for later toggle */}
+          <div style={{ marginTop: 14 }}>
+            <button
+              style={styles.scheduleToggle}
+              onClick={() => setShowSchedule(v => !v)}
+            >
+              {showSchedule ? '▲' : '▼'} Schedule for later
+            </button>
+            {showSchedule && (
+              <div style={styles.scheduleRow}>
+                <input
+                  type="datetime-local"
+                  value={scheduleValue}
+                  onChange={e => setScheduleValue(e.target.value)}
+                  style={styles.scheduleInput}
+                />
+                {scheduleValue && (
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 6 }}>
+                    Will launch at {new Date(scheduleValue).toLocaleString()}
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
@@ -226,7 +442,7 @@ export default function SenderPanel({
             <h3 style={styles.cardTitle}>Live Send Feed</h3>
           </div>
           <SendLiveView
-            pollProgress={pollProgress}
+            pollProgress={activePollProgress}
             onDone={() => { setShowLive(false); onRefresh(); }}
           />
         </div>
@@ -288,11 +504,7 @@ export default function SenderPanel({
           sheetTab={pickedSheetTab}
           fetchPreview={fetchPreview}
           onClose={() => setShowPreview(false)}
-          onConfirm={(excludeIds, emailOverrides) => {
-            setShowPreview(false);
-            setShowLive(true);
-            onRunPipeline({ excludeIds, sheetId: pickedSheetId, tab: pickedSheetTab, emailOverrides });
-          }}
+          onConfirm={handleConfirm}
         />
       )}
     </div>
@@ -305,6 +517,41 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: 20,
     maxWidth: 1100,
+  },
+
+  // Campaigns section
+  campaignsSection: {
+    background: 'var(--card)',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
+    padding: 20,
+  },
+  campaignsSectionHeader: {
+    marginBottom: 14,
+  },
+  campaignsSectionTitle: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.06em',
+    margin: 0,
+  },
+  campaignsEmpty: {
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    padding: '8px 0',
+  },
+  campaignBtn: {
+    background: 'none',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    color: 'var(--text-secondary)',
+    fontSize: 11,
+    fontWeight: 600,
+    padding: '4px 10px',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
   },
 
   // Hero
@@ -400,6 +647,32 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     fontFamily: "'DM Sans', sans-serif",
     cursor: 'pointer',
+  },
+  scheduleToggle: {
+    background: 'none',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    color: 'var(--text-secondary)',
+    fontSize: 12,
+    padding: '6px 12px',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  scheduleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    marginTop: 10,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+  },
+  scheduleInput: {
+    background: 'var(--bg)',
+    border: '1px solid var(--border)',
+    borderRadius: 7,
+    color: 'var(--text)',
+    fontSize: 12,
+    padding: '6px 10px',
+    fontFamily: "'DM Sans', sans-serif",
   },
   connectPrompt: {
     display: 'flex',
