@@ -57,7 +57,8 @@ function requireAlpicEmail(
   if (
     req.path === '/api/senders/auth' ||
     req.path === '/api/senders/auth/callback' ||
-    req.path === '/health'
+    req.path === '/health' ||
+    req.path === '/api/diag'
   ) {
     next();
     return;
