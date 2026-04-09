@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { AuthUser } from '../hooks/useAuth';
 import type { SenderStatus, PipelineStatus, PreviewContact, PipelineProgress } from '../hooks/useApi';
 import type { SheetSource } from '../hooks/useConfig';
@@ -20,6 +20,7 @@ interface Props {
   sources: SheetSource[];
   activeSheetId?: string;
   activeSheetTab?: string;
+  onManageSources: () => void;
 }
 
 export default function SenderPanel({
@@ -37,6 +38,7 @@ export default function SenderPanel({
   sources,
   activeSheetId,
   activeSheetTab,
+  onManageSources,
 }: Props) {
   const [showSheetPicker, setShowSheetPicker] = useState(false);
   const [pickedSheetId, setPickedSheetId] = useState<string | undefined>(activeSheetId);
@@ -44,6 +46,10 @@ export default function SenderPanel({
   const [showPreview, setShowPreview] = useState(false);
   const [showLive, setShowLive] = useState(false);
   const [showSenders, setShowSenders] = useState(false);
+
+  useEffect(() => {
+    if (pipelineStatus?.running) setShowLive(true);
+  }, [pipelineStatus?.running]);
 
   function handleLaunchClick() {
     if (sources.length > 1) {
@@ -111,7 +117,7 @@ export default function SenderPanel({
             >
               {loading ? '⏳ Running…' : '🚀 Launch Campaign'}
             </button>
-            {showLive && (
+            {!showLive && pipelineStatus?.running && (
               <button style={styles.liveBtn} onClick={() => setShowLive(true)}>
                 📡 View Live Feed
               </button>
@@ -257,6 +263,19 @@ export default function SenderPanel({
                   <div style={styles.pickerArrow}>→</div>
                 </button>
               ))}
+              <button
+                style={{
+                  ...styles.pickerRow,
+                  borderStyle: 'dashed',
+                  color: 'var(--accent)',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+                onClick={() => { setShowSheetPicker(false); onManageSources(); }}
+              >
+                <span>+</span>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>Add a new sheet</span>
+              </button>
             </div>
           </div>
         </div>

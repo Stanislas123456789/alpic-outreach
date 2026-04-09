@@ -1,12 +1,12 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg: #0a0b0f;
-  --card: #111318;
+  --bg: #0c0e15;
+  --card: #13151d;
   --card-hover: #161820;
-  --border: #1e2028;
+  --border: #252836;
   --text: #e8eaf0;
-  --text-secondary: #6b7280;
+  --text-secondary: #8892a4;
   --accent: #6366f1;
   --accent-light: #818cf8;
   --green: #34d399;
@@ -90,9 +90,9 @@ body {
 }
 .stat-card {
   background: var(--card); padding: 20px 24px;
-  transition: background 0.15s;
+  border-left: 3px solid transparent; transition: background 0.15s, border-color 0.15s;
 }
-.stat-card:hover { background: var(--card-hover); }
+.stat-card:hover { background: var(--card-hover); border-left-color: var(--accent); }
 .stat-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
 .stat-value { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
 .stat-sub { font-size: 11px; color: var(--text-secondary); margin-top: 6px; font-family: 'DM Mono', monospace; }
@@ -113,7 +113,7 @@ body {
   text-transform: capitalize;
 }
 .tab:hover { color: var(--text); }
-.tab.active { color: var(--accent-light); border-bottom-color: var(--accent); }
+.tab.active { color: white; border-bottom-color: var(--accent); font-weight: 600; }
 
 /* ─── Main ─── */
 .main { padding: 24px 32px; max-width: 1400px; }
@@ -127,7 +127,10 @@ body {
 }
 .chart-card.wide { grid-column: auto; }
 .chart-card.full { width: 100%; }
-.chart-card h2 { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 18px; letter-spacing: -0.01em; }
+.chart-card h2 {
+  font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 18px; letter-spacing: -0.01em;
+  padding-bottom: 14px; border-bottom: 1px solid var(--border);
+}
 
 /* ─── Status List ─── */
 .status-list { display: flex; flex-direction: column; gap: 10px; }

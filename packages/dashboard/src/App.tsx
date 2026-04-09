@@ -551,6 +551,7 @@ export default function App() {
               sources={sources}
               activeSheetId={activeSource.sheetId}
               activeSheetTab={activeSource.sheetTab}
+              onManageSources={() => setShowSources(true)}
             />
           </div>
         )}
