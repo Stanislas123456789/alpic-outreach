@@ -99,7 +99,26 @@ app.get('/api/diag', async (_req, res) => {
     const hasEnd = rawKey.includes('-----END');
     const hasLiteralN = rawKey.includes('\\n');
     const hasRealNewline = rawKey.includes('\n');
-    results.GOOGLE_PRIVATE_KEY = `present (${rawKey.length} chars, BEGIN:${hasBegin}, END:${hasEnd}, literal\\n:${hasLiteralN}, realNewline:${hasRealNewline})`;
+    results.GOOGLE_PRIVATE_KEY_raw = `${rawKey.length} chars, BEGIN:${hasBegin}, END:${hasEnd}, literal\\n:${hasLiteralN}, realNewline:${hasRealNewline}`;
+
+    // Show what parsePemKey produces
+    try {
+      let key = rawKey.trim();
+      if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+        try { key = JSON.parse(key); } catch { key = key.slice(1, -1); }
+      }
+      key = key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const lines = key.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+      const parsed = lines.join('\n');
+      const lineCount = lines.length;
+      const bodyLines = lines.filter((l: string) => !l.startsWith('-----'));
+      const invalidChars = bodyLines.join('').replace(/[A-Za-z0-9+/=]/g, '').length;
+      results.GOOGLE_PRIVATE_KEY_parsed = `${parsed.length} chars, ${lineCount} lines, ${invalidChars} invalid base64 chars`;
+      results.GOOGLE_PRIVATE_KEY_firstLine = lines[0] || 'EMPTY';
+      results.GOOGLE_PRIVATE_KEY_lastLine = lines[lines.length - 1] || 'EMPTY';
+    } catch (e: any) {
+      results.GOOGLE_PRIVATE_KEY_parsed = `parse error: ${e.message}`;
+    }
   }
 
   // Test Google Sheets connection
