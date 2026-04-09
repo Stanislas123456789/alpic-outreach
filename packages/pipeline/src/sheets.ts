@@ -37,14 +37,21 @@ function parsePemKey(raw: string): string {
   // Normalize line endings (Windows CRLF, old Mac CR)
   key = key.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-  // Trim whitespace from every line, then drop blank lines.
-  // PEM uses header/footer markers as delimiters — blank lines are never significant
-  // and can cause "PEM_read_bio_exbad base64 decode" if left in.
-  key = key
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l.length > 0)
-    .join('\n');
+  // Apply replace twice — handles double-encoded keys (e.g. Railway storing \\n)
+  key = key.replace(/\\n/g, '\n');
+
+  // Split, trim, filter blank lines
+  const lines = key.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  // Strip any non-base64 characters from body lines (e.g. stray backslash from
+  // mixed-encoding keys where both literal \n AND real newlines coexist).
+  // PEM header/footer lines are kept verbatim.
+  const cleaned = lines.map(l => {
+    if (l.startsWith('-----')) return l;
+    return l.replace(/[^A-Za-z0-9+/=]/g, '');
+  }).filter(l => l.length > 0);
+
+  key = cleaned.join('\n');
 
   if (!key.includes('-----BEGIN') || !key.includes('-----END')) {
     throw new Error(
