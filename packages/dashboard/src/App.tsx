@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, FunnelChart, Funnel, LabelList,
   RadarChart, PolarGrid, PolarAngleAxis, Radar, Cell,
 } from 'recharts';
-import { useSheets } from './hooks/useSheets';
+import { useAllSheets } from './hooks/useSheets';
 import { useAuth } from './hooks/useAuth';
 import { useConfig } from './hooks/useConfig';
 import { useApi } from './hooks/useApi';
@@ -121,7 +121,8 @@ function EmptyState({ onAddSource }: { onAddSource: () => void }) {
 export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
-  const { contacts, loading, error, lastUpdated, refresh, repMetrics, industryMetrics, funnel, stats } = useSheets(activeSource.sheetId, activeSource.sheetTab, 30000);
+  const { contacts, loading, lastUpdated, refresh, repMetrics, industryMetrics, funnel, stats } = useAllSheets(sources, 30000);
+  const error: string | null = null; // useAllSheets handles per-sheet errors silently
   const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders'>('overview');
   const [showSources, setShowSources] = useState(false);
   const api = useApi(user);
@@ -547,6 +548,7 @@ export default function App() {
               getConnectUrl={api.getConnectUrl}
               fetchPreview={api.previewContacts}
               pollProgress={api.pollProgress}
+              sources={sources}
               activeSheetId={activeSource.sheetId}
               activeSheetTab={activeSource.sheetTab}
             />

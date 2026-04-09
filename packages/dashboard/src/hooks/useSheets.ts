@@ -116,6 +116,57 @@ export function computeFunnel(contacts: Contact[]) {
   ];
 }
 
+// ─── Multi-sheet aggregate hook ───────────────────────────────────────────────
+
+import type { SheetSource } from './useConfig';
+
+export function useAllSheets(sources: SheetSource[], refreshInterval = 30000) {
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const all: Contact[] = [];
+    await Promise.allSettled(
+      sources
+        .filter(s => s.sheetId)
+        .map(async s => {
+          try {
+            const data = await fetchSheetData(s.sheetId, s.sheetTab);
+            all.push(...data);
+          } catch {
+            // individual sheet failure is silent — don't break the whole view
+          }
+        })
+    );
+    setContacts(all);
+    setLastUpdated(new Date());
+    setLoading(false);
+  }, [sources.map(s => s.id + s.sheetId + s.sheetTab).join(',')]);
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, refreshInterval);
+    return () => clearInterval(interval);
+  }, [refresh, refreshInterval]);
+
+  const repMetrics = computeRepMetrics(contacts);
+  const industryMetrics = computeIndustryMetrics(contacts);
+  const funnel = computeFunnel(contacts);
+  const totalSent = contacts.filter(c => c.status !== 'pending' && c.status !== 'invalid').length;
+  const totalPending = contacts.filter(c => c.status === 'pending').length;
+  const bounceRate = totalSent > 0 ? Math.round((contacts.filter(c => c.status === 'bounced').length / totalSent) * 100) : 0;
+  const openRate = totalSent > 0 ? Math.round((contacts.filter(c => c.openCount > 0 || c.status === 'opened' || c.status === 'replied').length / totalSent) * 100) : 0;
+  const replyRate = totalSent > 0 ? Math.round((contacts.filter(c => c.status === 'replied').length / totalSent) * 100) : 0;
+
+  return {
+    contacts, loading, lastUpdated, refresh,
+    repMetrics, industryMetrics, funnel,
+    stats: { totalSent, totalPending, bounceRate, openRate, replyRate },
+  };
+}
+
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
 export function useSheets(sheetId: string, sheetTab: string, refreshInterval = 60000) {

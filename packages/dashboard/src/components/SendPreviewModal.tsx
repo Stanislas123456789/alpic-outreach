@@ -124,8 +124,19 @@ export default function SendPreviewModal({ sheetId, sheetTab, onConfirm, onClose
             <p style={styles.subtitle}>
               {loading
                 ? 'Loading contacts…'
-                : `${toSend.length} of ${contacts.length} contacts selected · click a row to preview the email · pencil to edit`}
+                : `${toSend.length} of ${contacts.length} contacts selected · click a row to preview · pencil to edit`}
             </p>
+            {sheetTab && (
+              <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Sheet:</span>
+                <span style={{
+                  fontSize: 11, fontWeight: 600, color: 'var(--accent)',
+                  background: 'var(--accent)18', borderRadius: 4, padding: '1px 7px',
+                }}>
+                  {sheetTab}
+                </span>
+              </div>
+            )}
           </div>
           <button style={styles.closeBtn} onClick={onClose}>✕</button>
         </div>

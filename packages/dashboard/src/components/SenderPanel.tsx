@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { AuthUser } from '../hooks/useAuth';
 import type { SenderStatus, PipelineStatus, PreviewContact, PipelineProgress } from '../hooks/useApi';
+import type { SheetSource } from '../hooks/useConfig';
 import SendPreviewModal from './SendPreviewModal';
 import SendLiveView from './SendLiveView';
 
@@ -16,6 +17,7 @@ interface Props {
   getConnectUrl: (email: string) => string;
   fetchPreview: (sheetId?: string, tab?: string, limit?: number) => Promise<PreviewContact[]>;
   pollProgress: () => Promise<PipelineProgress>;
+  sources: SheetSource[];
   activeSheetId?: string;
   activeSheetTab?: string;
 }
@@ -32,12 +34,35 @@ export default function SenderPanel({
   getConnectUrl,
   fetchPreview,
   pollProgress,
+  sources,
   activeSheetId,
   activeSheetTab,
 }: Props) {
+  const [showSheetPicker, setShowSheetPicker] = useState(false);
+  const [pickedSheetId, setPickedSheetId] = useState<string | undefined>(activeSheetId);
+  const [pickedSheetTab, setPickedSheetTab] = useState<string | undefined>(activeSheetTab);
   const [showPreview, setShowPreview] = useState(false);
   const [showLive, setShowLive] = useState(false);
   const [showSenders, setShowSenders] = useState(false);
+
+  function handleLaunchClick() {
+    if (sources.length > 1) {
+      setShowSheetPicker(true);
+    } else {
+      setPickedSheetId(activeSheetId);
+      setPickedSheetTab(activeSheetTab);
+      setShowLive(false);
+      setShowPreview(true);
+    }
+  }
+
+  function handleSheetPicked(source: SheetSource) {
+    setPickedSheetId(source.sheetId);
+    setPickedSheetTab(source.sheetTab);
+    setShowSheetPicker(false);
+    setShowLive(false);
+    setShowPreview(true);
+  }
 
   const userSender = senders.find(s => s.email === user.email);
   const isConnected = !!userSender?.connected;
@@ -81,7 +106,7 @@ export default function SenderPanel({
                 opacity: loading || !hasAnySender ? 0.45 : 1,
                 cursor: loading || !hasAnySender ? 'not-allowed' : 'pointer',
               }}
-              onClick={() => { setShowLive(false); setShowPreview(true); }}
+              onClick={handleLaunchClick}
               disabled={loading || !hasAnySender}
             >
               {loading ? '⏳ Running…' : '🚀 Launch Campaign'}
@@ -201,17 +226,53 @@ export default function SenderPanel({
         </div>
       )}
 
+      {/* ── Sheet picker modal ──────────────────────────────────── */}
+      {showSheetPicker && (
+        <div style={styles.overlay} onClick={() => setShowSheetPicker(false)}>
+          <div style={styles.pickerModal} onClick={e => e.stopPropagation()}>
+            <div style={styles.pickerHeader}>
+              <div>
+                <h2 style={styles.pickerTitle}>Choose a campaign sheet</h2>
+                <p style={styles.pickerSub}>Select which sheet to pull pending contacts from</p>
+              </div>
+              <button style={styles.closeBtn} onClick={() => setShowSheetPicker(false)}>✕</button>
+            </div>
+            <div style={styles.pickerList}>
+              {sources.map(source => (
+                <button
+                  key={source.id}
+                  style={{
+                    ...styles.pickerRow,
+                    ...(source.sheetId === activeSheetId ? styles.pickerRowActive : {}),
+                  }}
+                  onClick={() => handleSheetPicked(source)}
+                >
+                  <div style={styles.pickerRowLeft}>
+                    <div style={styles.pickerSheetIcon}>📋</div>
+                    <div>
+                      <div style={styles.pickerName}>{source.name}</div>
+                      <div style={styles.pickerMeta}>Tab: {source.sheetTab}</div>
+                    </div>
+                  </div>
+                  <div style={styles.pickerArrow}>→</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Preview modal ────────────────────────────────────────── */}
       {showPreview && (
         <SendPreviewModal
-          sheetId={activeSheetId}
-          sheetTab={activeSheetTab}
+          sheetId={pickedSheetId}
+          sheetTab={pickedSheetTab}
           fetchPreview={fetchPreview}
           onClose={() => setShowPreview(false)}
           onConfirm={(excludeIds, emailOverrides) => {
             setShowPreview(false);
             setShowLive(true);
-            onRunPipeline({ excludeIds, sheetId: activeSheetId, tab: activeSheetTab, emailOverrides });
+            onRunPipeline({ excludeIds, sheetId: pickedSheetId, tab: pickedSheetTab, emailOverrides });
           }}
         />
       )}
@@ -504,6 +565,102 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     fontFamily: "'DM Sans', sans-serif",
     width: '100%',
+  },
+
+  // Sheet picker overlay
+  overlay: {
+    position: 'fixed' as const,
+    inset: 0,
+    background: 'rgba(0,0,0,0.65)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: 16,
+  },
+  pickerModal: {
+    background: 'var(--card)',
+    border: '1px solid var(--border)',
+    borderRadius: 16,
+    width: '100%',
+    maxWidth: 480,
+    overflow: 'hidden',
+  },
+  pickerHeader: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    padding: '24px 24px 16px',
+    borderBottom: '1px solid var(--border)',
+  },
+  pickerTitle: {
+    fontSize: 17,
+    fontWeight: 700,
+    color: 'var(--text)',
+    margin: 0,
+  },
+  pickerSub: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    margin: '3px 0 0',
+  },
+  closeBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    fontSize: 18,
+    cursor: 'pointer',
+    padding: 4,
+    lineHeight: 1,
+    flexShrink: 0,
+  },
+  pickerList: {
+    padding: 12,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 6,
+  },
+  pickerRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '14px 16px',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    cursor: 'pointer',
+    textAlign: 'left' as const,
+    fontFamily: "'DM Sans', sans-serif",
+    transition: 'border-color 0.15s, background 0.15s',
+    width: '100%',
+  },
+  pickerRowActive: {
+    borderColor: 'var(--accent)',
+    background: 'var(--accent)11',
+  },
+  pickerRowLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+  },
+  pickerSheetIcon: {
+    fontSize: 22,
+    flexShrink: 0,
+  },
+  pickerName: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: 'var(--text)',
+  },
+  pickerMeta: {
+    fontSize: 11,
+    color: 'var(--text-secondary)',
+    marginTop: 2,
+  },
+  pickerArrow: {
+    fontSize: 16,
+    color: 'var(--accent)',
+    fontWeight: 700,
   },
 
   // Card (for live view)
