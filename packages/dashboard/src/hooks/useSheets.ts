@@ -22,6 +22,7 @@ async function fetchSheetData(sheetId: string, sheetTab: string): Promise<Contac
       firstName: (row[SHEET_COLUMNS.contactName] || '').split(' ')[0] || '',
       email: row[SHEET_COLUMNS.email] || '',
       role: row[SHEET_COLUMNS.role] || '',
+      linkedIn: row[SHEET_COLUMNS.linkedIn] || '',
       company: row[SHEET_COLUMNS.company] || '',
       website: row[SHEET_COLUMNS.website] || '',
       industry: row[SHEET_COLUMNS.industry] || '',

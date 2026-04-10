@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, FunnelChart, Funnel, LabelList,
-  RadarChart, PolarGrid, PolarAngleAxis, Radar, Cell,
+  ResponsiveContainer, Cell, LineChart, Line, Legend,
+  AreaChart, Area,
 } from 'recharts';
 import { useAllSheets } from './hooks/useSheets';
 import { useAuth } from './hooks/useAuth';
@@ -31,10 +31,15 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
+  const c = color || 'var(--accent)';
   return (
-    <div className="stat-card">
+    <div className="stat-card" style={{ '--stat-color': c } as React.CSSProperties}>
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: '2px',
+        background: c, opacity: 0.6,
+      }} />
       <div className="stat-label">{label}</div>
-      <div className="stat-value" style={{ color: color || 'var(--accent)' }}>{value}</div>
+      <div className="stat-value" style={{ color: c }}>{value}</div>
       {sub && <div className="stat-sub">{sub}</div>}
     </div>
   );
@@ -122,10 +127,37 @@ export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
   const { contacts, loading, lastUpdated, refresh, repMetrics, industryMetrics, funnel, stats } = useAllSheets(sources, 30000);
-  const error: string | null = null; // useAllSheets handles per-sheet errors silently
+  const error: string | null = null;
   const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders'>('overview');
   const [showSources, setShowSources] = useState(false);
+  const [showLogoMenu, setShowLogoMenu] = useState(false);
+  const [pipelineStatusFilter, setPipelineStatusFilter] = useState<string>('all');
+  const [pipelineIndustryFilter, setPipelineIndustryFilter] = useState<string>('all');
+  const [pipelineSortCol, setPipelineSortCol] = useState<string>('sentAt');
+  const [pipelineSortDir, setPipelineSortDir] = useState<'asc' | 'desc'>('desc');
+  const [filterName, setFilterName] = useState('');
+  const [filterCompany, setFilterCompany] = useState('');
+  const [filterCountry, setFilterCountry] = useState('all');
+  const [filterAssignedTo, setFilterAssignedTo] = useState('all');
+  const [filterLinkedIn, setFilterLinkedIn] = useState<'all' | 'yes' | 'no'>('all');
+  const [filterOpens, setFilterOpens] = useState<'all' | 'yes'>('all');
   const api = useApi(user);
+
+  // Daily metrics for chronological chart
+  const dailyMetrics = useMemo(() => {
+    const map = new Map<string, { date: string; sent: number; opened: number; replied: number; bounced: number }>();
+    for (const c of contacts) {
+      if (!c.sentAt) continue;
+      const date = c.sentAt.slice(0, 10); // YYYY-MM-DD
+      if (!map.has(date)) map.set(date, { date, sent: 0, opened: 0, replied: 0, bounced: 0 });
+      const d = map.get(date)!;
+      d.sent++;
+      if (c.status === 'opened' || c.openCount > 0) d.opened++;
+      if (c.status === 'replied') { d.opened++; d.replied++; }
+      if (c.status === 'bounced') d.bounced++;
+    }
+    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }, [contacts]);
 
   // Handle post-OAuth redirect: ?tab=senders&connected=true
   useEffect(() => {
@@ -163,7 +195,80 @@ export default function App() {
       {/* Header */}
       <header className="header">
         <div className="header-left">
-          <div className="logo">ALPIC</div>
+          {/* Logo with dropdown menu */}
+          <div style={{ position: 'relative' }}>
+            <button
+              className="logo"
+              onClick={() => setShowLogoMenu(v => !v)}
+              style={{
+                cursor: 'pointer', background: 'none', border: 'none',
+                fontFamily: 'inherit', padding: 0, userSelect: 'none',
+              }}
+              title="Menu"
+            >
+              ALPIC ▾
+            </button>
+            {showLogoMenu && (
+              <>
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+                  onClick={() => setShowLogoMenu(false)}
+                />
+                <div style={{
+                  position: 'absolute', top: '110%', left: 0, zIndex: 100,
+                  background: 'var(--card)', border: '1px solid var(--border)',
+                  borderRadius: 12, padding: 8, minWidth: 200,
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                }}>
+                  {([
+                    { label: 'Overview', tab: 'overview' as const, icon: '📊' },
+                    { label: 'Reps', tab: 'reps' as const, icon: '👥' },
+                    { label: 'Industries', tab: 'industries' as const, icon: '🏭' },
+                    { label: 'Pipeline', tab: 'pipeline' as const, icon: '📋' },
+                  ] as const).map(item => (
+                    <button
+                      key={item.tab}
+                      onClick={() => { setActiveTab(item.tab); setShowLogoMenu(false); }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        width: '100%', padding: '10px 14px', border: 'none',
+                        background: activeTab === item.tab ? 'var(--accent)22' : 'none',
+                        color: activeTab === item.tab ? 'var(--accent)' : 'var(--text)',
+                        borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                        fontWeight: activeTab === item.tab ? 700 : 500,
+                        fontFamily: 'inherit', textAlign: 'left',
+                      }}
+                    >
+                      <span>{item.icon}</span> {item.label}
+                    </button>
+                  ))}
+                  <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+                  <button
+                    onClick={() => { setShowSources(true); setShowLogoMenu(false); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      width: '100%', padding: '10px 14px', border: 'none',
+                      background: 'none', color: 'var(--text)', borderRadius: 8,
+                      cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', textAlign: 'left',
+                    }}
+                  >
+                    <span>📁</span> Manage Sheets
+                  </button>
+                  <button
+                    onClick={() => { logout(); setShowLogoMenu(false); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      width: '100%', padding: '10px 14px', border: 'none',
+                      background: 'none', color: '#f87171', borderRadius: 8,
+                      cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', textAlign: 'left',
+                    }}
+                  >
+                    <span>↩</span> Sign out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <div className="header-title">
             <h1>Outreach Pipeline</h1>
             <span className="header-sub">Sales Analytics Dashboard</span>
@@ -189,12 +294,27 @@ export default function App() {
             {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : ''}
           </span>
           <button className="refresh-btn" onClick={refresh}>↻ Refresh</button>
+          {/* Launch Campaign CTA — replaces Senders tab */}
+          {user?.email?.endsWith('@alpic.ai') && (
+            <button
+              onClick={() => { setActiveTab('senders'); api.refresh(); }}
+              style={{
+                background: activeTab === 'senders' ? '#4f46e5' : 'var(--accent)',
+                color: 'white', border: 'none', borderRadius: 9,
+                padding: '8px 18px', fontSize: 13, fontWeight: 700,
+                cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                display: 'flex', alignItems: 'center', gap: 6,
+                boxShadow: '0 2px 8px rgba(99,102,241,0.4)',
+              }}
+            >
+              🚀 Launch Campaign
+            </button>
+          )}
           <div className="user-info">
             {user.picture
               ? <img src={user.picture} alt={user.name} className="user-avatar-img" />
               : <div className="rep-avatar" style={{ width: 32, height: 32, fontSize: 13 }}>{user.name[0].toUpperCase()}</div>
             }
-            <button className="logout-btn" onClick={logout}>Sign out</button>
           </div>
         </div>
       </header>
@@ -219,14 +339,9 @@ export default function App() {
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
-        {/* Senders tab — only for Google-authenticated @alpic.ai users */}
-        {user?.email?.endsWith('@alpic.ai') && (
-          <button
-            className={`tab ${activeTab === 'senders' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('senders'); api.refresh(); }}
-          >
-            Senders
-          </button>
+        {/* Senders tab — hidden from nav, accessible via Launch Campaign button */}
+        {activeTab === 'senders' && (
+          <button className="tab active">Campaign</button>
         )}
       </nav>
 
@@ -279,52 +394,134 @@ export default function App() {
             {!error && contacts.length === 0 && !loading && (
               <EmptyState onAddSource={() => setShowSources(true)} />
             )}
-            {(contacts.length > 0 || error) && <div className="charts-row">
-              {/* Funnel */}
-              <div className="chart-card wide">
-                <h2>Pipeline Funnel</h2>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={funnel} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="stage" tick={{ fill: 'var(--text-secondary)', fontSize: 13 }} />
-                    <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
-                    <Tooltip
-                      contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}
-                      labelStyle={{ color: 'var(--text)' }}
-                    />
-                    <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                      {funnel.map((entry, index) => (
-                        <Cell key={index} fill={entry.color} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+            {(contacts.length > 0 || error) && <>
+              {/* Chronological send activity */}
+              {dailyMetrics.length > 0 && (
+                <div className="chart-card full">
+                  <h2>Daily Send Activity</h2>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <AreaChart data={dailyMetrics} margin={{ top: 10, right: 16, left: -8, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gradSent" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="gradOpened" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="gradReplied" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#34d399" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                        axisLine={false} tickLine={false}
+                        tickFormatter={d => {
+                          const dt = new Date(d + 'T12:00:00');
+                          return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                        }}
+                      />
+                      <YAxis
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                        axisLine={false} tickLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: '#0f1119', border: '1px solid #1d2030',
+                          borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                          padding: '10px 14px',
+                        }}
+                        labelStyle={{ color: 'var(--text)', fontSize: 12, fontWeight: 600, marginBottom: 6 }}
+                        itemStyle={{ fontSize: 12 }}
+                        cursor={{ stroke: 'rgba(99,102,241,0.2)', strokeWidth: 1 }}
+                        labelFormatter={d => {
+                          const dt = new Date(d + 'T12:00:00');
+                          return dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+                        }}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 11, paddingTop: 12 }}
+                        iconType="circle" iconSize={7}
+                      />
+                      <Area type="monotone" dataKey="sent" name="Sent" stroke="#6366f1" strokeWidth={2.5}
+                        fill="url(#gradSent)" dot={false} activeDot={{ r: 5, fill: '#6366f1', strokeWidth: 0 }} />
+                      <Area type="monotone" dataKey="opened" name="Opened" stroke="#a78bfa" strokeWidth={2}
+                        fill="url(#gradOpened)" dot={false} activeDot={{ r: 5, fill: '#a78bfa', strokeWidth: 0 }} />
+                      <Area type="monotone" dataKey="replied" name="Replied" stroke="#34d399" strokeWidth={2}
+                        fill="url(#gradReplied)" dot={false} activeDot={{ r: 5, fill: '#34d399', strokeWidth: 0 }} />
+                      <Line type="monotone" dataKey="bounced" name="Bounced" stroke="#f87171" strokeWidth={1.5}
+                        dot={false} activeDot={{ r: 4, fill: '#f87171', strokeWidth: 0 }} strokeDasharray="5 3" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
 
-              {/* Status breakdown */}
-              <div className="chart-card">
-                <h2>Status Breakdown</h2>
-                <div className="status-list">
-                  {Object.entries(STATUS_COLORS).map(([status, color]) => {
-                    const count = contacts.filter(c => c.status === status).length;
-                    const pct = contacts.length > 0 ? Math.round((count / contacts.length) * 100) : 0;
-                    return (
-                      <div key={status} className="status-row">
-                        <div className="status-dot" style={{ background: color }} />
-                        <span className="status-name">{status}</span>
-                        <div className="status-bar-wrap">
-                          <div className="status-bar" style={{ width: `${pct}%`, background: color }} />
+              <div className="charts-row">
+                {/* Funnel */}
+                <div className="chart-card wide">
+                  <h2>Pipeline Funnel</h2>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={funnel} margin={{ top: 10, right: 16, left: -8, bottom: 0 }} barCategoryGap="28%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <XAxis
+                        dataKey="stage"
+                        tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+                        axisLine={false} tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                        axisLine={false} tickLine={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: '#0f1119', border: '1px solid #1d2030',
+                          borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                        }}
+                        labelStyle={{ color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}
+                        cursor={{ fill: 'rgba(99,102,241,0.06)' }}
+                      />
+                      <Bar dataKey="value" radius={[8, 8, 4, 4]}>
+                        {funnel.map((entry, index) => (
+                          <Cell key={index} fill={entry.color} fillOpacity={0.9} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Status breakdown */}
+                <div className="chart-card">
+                  <h2>Status Breakdown</h2>
+                  <div className="status-list">
+                    {Object.entries(STATUS_COLORS).map(([status, color]) => {
+                      const count = contacts.filter(c => c.status === status).length;
+                      const pct = contacts.length > 0 ? Math.round((count / contacts.length) * 100) : 0;
+                      return (
+                        <div key={status} className="status-row">
+                          <div className="status-dot" style={{ background: color, color }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                              <span className="status-name">{status}</span>
+                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--text-muted)' }}>{pct}%</span>
+                            </div>
+                            <div className="status-bar-wrap">
+                              <div className="status-bar" style={{ width: `${pct}%`, background: color, opacity: pct === 0 ? 0.2 : 1 }} />
+                            </div>
+                          </div>
+                          <span className="status-count">{count}</span>
                         </div>
-                        <span className="status-count">{count}</span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>}
 
-            {(contacts.length > 0 || error) && (
-              <div className="chart-card full">
+              <div className="chart-card full" style={{ marginTop: 20 }}>
                 <h2>Reply Rate by Industry</h2>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={industryMetrics} layout="vertical" margin={{ left: 20, right: 40 }}>
@@ -343,7 +540,7 @@ export default function App() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            )}
+            </>}
           </div>
         )}
 
@@ -484,54 +681,309 @@ export default function App() {
         )}
 
         {/* ── PIPELINE TABLE ── */}
-        {activeTab === 'pipeline' && (
-          <div className="tab-content">
-            <div className="chart-card full">
-              <div className="pipeline-header">
-                <h2>Contact Pipeline</h2>
-                <span className="pipeline-count">{contacts.length} total contacts</span>
+        {activeTab === 'pipeline' && (() => {
+          const allStatuses = ['all', 'pending', 'sent', 'opened', 'replied', 'bounced', 'invalid'];
+          const allIndustries = ['all', ...Array.from(new Set(contacts.map(c => c.industry).filter(Boolean)))];
+          const allCountries = ['all', ...Array.from(new Set(contacts.map(c => c.country).filter(Boolean))).sort()];
+          const allReps = ['all', ...Array.from(new Set(contacts.map(c => c.assignedTo?.split('@')[0]).filter(Boolean))).sort() as string[]];
+
+          const filtered = contacts.filter(c => {
+            if (pipelineStatusFilter !== 'all' && c.status !== pipelineStatusFilter) return false;
+            if (pipelineIndustryFilter !== 'all' && c.industry !== pipelineIndustryFilter) return false;
+            if (filterName && !c.firstName.toLowerCase().includes(filterName.toLowerCase())) return false;
+            if (filterCompany && !c.company.toLowerCase().includes(filterCompany.toLowerCase())) return false;
+            if (filterCountry !== 'all' && c.country !== filterCountry) return false;
+            if (filterAssignedTo !== 'all' && (c.assignedTo?.split('@')[0] || '') !== filterAssignedTo) return false;
+            if (filterLinkedIn === 'yes' && !c.linkedIn) return false;
+            if (filterLinkedIn === 'no' && c.linkedIn) return false;
+            if (filterOpens === 'yes' && c.openCount === 0) return false;
+            return true;
+          });
+
+          const sorted = [...filtered].sort((a, b) => {
+            const dir = pipelineSortDir === 'asc' ? 1 : -1;
+            switch (pipelineSortCol) {
+              case 'name': return dir * a.firstName.localeCompare(b.firstName);
+              case 'company': return dir * a.company.localeCompare(b.company);
+              case 'industry': return dir * (a.industry || '').localeCompare(b.industry || '');
+              case 'country': return dir * (a.country || '').localeCompare(b.country || '');
+              case 'assignedTo': return dir * (a.assignedTo || '').localeCompare(b.assignedTo || '');
+              case 'status': return dir * a.status.localeCompare(b.status);
+              case 'opens': return dir * (a.openCount - b.openCount);
+              case 'sentAt': {
+                const da = a.sentAt ? new Date(a.sentAt).getTime() : 0;
+                const db = b.sentAt ? new Date(b.sentAt).getTime() : 0;
+                return dir * (da - db);
+              }
+              default: return 0;
+            }
+          });
+
+          const handleSort = (col: string) => {
+            if (pipelineSortCol === col) setPipelineSortDir(d => d === 'asc' ? 'desc' : 'asc');
+            else { setPipelineSortCol(col); setPipelineSortDir('asc'); }
+          };
+
+          const sortIcon = (col: string) => (
+            <span style={{ marginLeft: 3, fontSize: 10, opacity: pipelineSortCol === col ? 1 : 0.3, color: pipelineSortCol === col ? 'var(--accent)' : 'var(--text-secondary)' }}>
+              {pipelineSortCol === col ? (pipelineSortDir === 'asc' ? '↑' : '↓') : '⇅'}
+            </span>
+          );
+
+          const activeFilterCount = [
+            pipelineStatusFilter !== 'all', pipelineIndustryFilter !== 'all',
+            !!filterName, !!filterCompany, filterCountry !== 'all',
+            filterAssignedTo !== 'all', filterLinkedIn !== 'all', filterOpens !== 'all',
+          ].filter(Boolean).length;
+
+          const clearAllFilters = () => {
+            setPipelineStatusFilter('all'); setPipelineIndustryFilter('all');
+            setFilterName(''); setFilterCompany('');
+            setFilterCountry('all'); setFilterAssignedTo('all');
+            setFilterLinkedIn('all'); setFilterOpens('all');
+          };
+
+          const thBase: React.CSSProperties = {
+            background: '#0e1018', borderBottom: '2px solid var(--border)',
+            padding: 0, verticalAlign: 'top',
+          };
+          const colLabel: React.CSSProperties = {
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            display: 'flex', alignItems: 'center',
+            color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase',
+            letterSpacing: '0.08em', fontWeight: 600, fontFamily: 'inherit',
+            whiteSpace: 'nowrap',
+          };
+          const fi: React.CSSProperties = {
+            width: '100%', background: 'var(--bg)', border: '1px solid var(--border)',
+            borderRadius: 5, color: 'var(--text)', fontSize: 10, padding: '3px 7px',
+            fontFamily: "'DM Sans', sans-serif", outline: 'none', marginTop: 5,
+          };
+          const pill = (active: boolean, color: string): React.CSSProperties => ({
+            padding: '2px 5px', borderRadius: 4, fontSize: 9, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1.6,
+            border: active ? `1px solid ${color}` : '1px solid transparent',
+            background: active ? color + '33' : 'rgba(255,255,255,0.04)',
+            color: active ? color : 'var(--text-secondary)',
+          });
+
+          return (
+            <div className="tab-content">
+              {/* Toolbar */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{
+                    fontSize: 12, fontWeight: 600,
+                    background: 'var(--accent)1a', border: '1px solid var(--accent)33',
+                    borderRadius: 6, padding: '4px 10px', color: 'var(--text)',
+                  }}>
+                    {sorted.length} <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>of {contacts.length}</span>
+                  </span>
+                  {activeFilterCount > 0 && (
+                    <button onClick={clearAllFilters} style={{
+                      background: 'none', border: '1px solid var(--border)', borderRadius: 5,
+                      color: 'var(--text-secondary)', fontSize: 11, padding: '4px 10px',
+                      cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4,
+                    }}>
+                      ✕ Clear {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''}
+                    </button>
+                  )}
+                </div>
+                {pipelineSortCol && (
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: "'DM Mono', monospace" }}>
+                    {pipelineSortCol} {pipelineSortDir === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
               </div>
-              <div className="table-wrap">
-                <table className="pipeline-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Company</th>
-                      <th>Industry</th>
-                      <th>Country</th>
-                      <th>Assigned To</th>
-                      <th>Status</th>
-                      <th>Opens</th>
-                      <th>Sent At</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {contacts.slice(0, 200).map((c) => (
-                      <tr key={c.id}>
-                        <td>{c.firstName}</td>
-                        <td>{c.company}</td>
-                        <td>
-                          <span className="industry-tag" style={{ background: (INDUSTRY_COLORS[c.industry] || '#6366f1') + '22', color: INDUSTRY_COLORS[c.industry] || '#6366f1' }}>
-                            {c.industry}
-                          </span>
-                        </td>
-                        <td>{c.country}</td>
-                        <td className="rep-cell">{c.assignedTo ? c.assignedTo.split('@')[0] : '—'}</td>
-                        <td>
-                          <span className="status-pill" style={{ background: (STATUS_COLORS[c.status] || '#94a3b8') + '33', color: STATUS_COLORS[c.status] || '#94a3b8' }}>
-                            {c.status}
-                          </span>
-                        </td>
-                        <td>{c.openCount > 0 ? `👁 ${c.openCount}` : '—'}</td>
-                        <td className="date-cell">{c.sentAt ? new Date(c.sentAt).toLocaleDateString() : '—'}</td>
+
+              <div className="chart-card full" style={{ padding: 0, overflow: 'hidden' }}>
+                <div className="table-wrap">
+                  <table className="pipeline-table" style={{ tableLayout: 'fixed', minWidth: 960 }}>
+                    <colgroup>
+                      <col style={{ width: '9%' }} />
+                      <col style={{ width: '14%' }} />
+                      <col style={{ width: '12%' }} />
+                      <col style={{ width: '8%' }} />
+                      <col style={{ width: '10%' }} />
+                      <col style={{ width: '19%' }} />
+                      <col style={{ width: '8%' }} />
+                      <col style={{ width: '8%' }} />
+                      <col style={{ width: '10%' }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        {/* NAME */}
+                        <th style={thBase}>
+                          <div style={{ padding: '10px 12px 9px' }}>
+                            <button style={colLabel} onClick={() => handleSort('name')}>NAME {sortIcon('name')}</button>
+                            <input type="text" placeholder="Search…" value={filterName}
+                              onChange={e => setFilterName(e.target.value)}
+                              style={{ ...fi, borderColor: filterName ? 'var(--accent)' : 'var(--border)' }} />
+                          </div>
+                        </th>
+                        {/* COMPANY */}
+                        <th style={thBase}>
+                          <div style={{ padding: '10px 12px 9px' }}>
+                            <button style={colLabel} onClick={() => handleSort('company')}>COMPANY {sortIcon('company')}</button>
+                            <input type="text" placeholder="Search…" value={filterCompany}
+                              onChange={e => setFilterCompany(e.target.value)}
+                              style={{ ...fi, borderColor: filterCompany ? 'var(--accent)' : 'var(--border)' }} />
+                          </div>
+                        </th>
+                        {/* INDUSTRY */}
+                        <th style={thBase}>
+                          <div style={{ padding: '10px 12px 9px' }}>
+                            <button style={colLabel} onClick={() => handleSort('industry')}>INDUSTRY {sortIcon('industry')}</button>
+                            <select value={pipelineIndustryFilter} onChange={e => setPipelineIndustryFilter(e.target.value)}
+                              style={{ ...fi, cursor: 'pointer', borderColor: pipelineIndustryFilter !== 'all' ? 'var(--accent)' : 'var(--border)', color: pipelineIndustryFilter !== 'all' ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                              {allIndustries.map(ind => <option key={ind} value={ind}>{ind === 'all' ? 'All industries' : ind}</option>)}
+                            </select>
+                          </div>
+                        </th>
+                        {/* COUNTRY */}
+                        <th style={thBase}>
+                          <div style={{ padding: '10px 12px 9px' }}>
+                            <button style={colLabel} onClick={() => handleSort('country')}>COUNTRY {sortIcon('country')}</button>
+                            <select value={filterCountry} onChange={e => setFilterCountry(e.target.value)}
+                              style={{ ...fi, cursor: 'pointer', borderColor: filterCountry !== 'all' ? 'var(--accent)' : 'var(--border)', color: filterCountry !== 'all' ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                              {allCountries.map(c => <option key={c} value={c}>{c === 'all' ? 'All' : c}</option>)}
+                            </select>
+                          </div>
+                        </th>
+                        {/* ASSIGNED TO */}
+                        <th style={thBase}>
+                          <div style={{ padding: '10px 12px 9px' }}>
+                            <button style={colLabel} onClick={() => handleSort('assignedTo')}>ASSIGNED {sortIcon('assignedTo')}</button>
+                            <select value={filterAssignedTo} onChange={e => setFilterAssignedTo(e.target.value)}
+                              style={{ ...fi, cursor: 'pointer', borderColor: filterAssignedTo !== 'all' ? 'var(--accent)' : 'var(--border)', color: filterAssignedTo !== 'all' ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                              {allReps.map(r => <option key={r} value={r}>{r === 'all' ? 'All reps' : r}</option>)}
+                            </select>
+                          </div>
+                        </th>
+                        {/* STATUS */}
+                        <th style={thBase}>
+                          <div style={{ padding: '10px 12px 9px' }}>
+                            <button style={colLabel} onClick={() => handleSort('status')}>STATUS {sortIcon('status')}</button>
+                            <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginTop: 5 }}>
+                              {allStatuses.map(s => (
+                                <button key={s} onClick={() => setPipelineStatusFilter(s)}
+                                  style={pill(pipelineStatusFilter === s, STATUS_COLORS[s] || 'var(--accent)')}>
+                                  {s === 'all' ? 'ALL' : s.toUpperCase()}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </th>
+                        {/* LINKEDIN */}
+                        <th style={thBase}>
+                          <div style={{ padding: '10px 12px 9px' }}>
+                            <span style={{ ...colLabel, cursor: 'default' }}>LINKEDIN</span>
+                            <div style={{ display: 'flex', gap: 2, marginTop: 5 }}>
+                              {(['all', 'yes', 'no'] as const).map(v => (
+                                <button key={v} onClick={() => setFilterLinkedIn(v)}
+                                  style={pill(filterLinkedIn === v, '#0a66c2')}>
+                                  {v === 'all' ? 'ALL' : v === 'yes' ? 'HAS' : 'NO'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </th>
+                        {/* OPENS */}
+                        <th style={thBase}>
+                          <div style={{ padding: '10px 12px 9px' }}>
+                            <button style={colLabel} onClick={() => handleSort('opens')}>OPENS {sortIcon('opens')}</button>
+                            <div style={{ display: 'flex', gap: 2, marginTop: 5 }}>
+                              {(['all', 'yes'] as const).map(v => (
+                                <button key={v} onClick={() => setFilterOpens(v)}
+                                  style={pill(filterOpens === v, '#a78bfa')}>
+                                  {v === 'all' ? 'ALL' : 'HAS'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </th>
+                        {/* SENT AT */}
+                        <th style={thBase}>
+                          <div style={{ padding: '10px 12px 9px' }}>
+                            <button style={colLabel} onClick={() => handleSort('sentAt')}>SENT AT {sortIcon('sentAt')}</button>
+                          </div>
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {sorted.slice(0, 500).map((c) => (
+                        <tr key={c.id} style={{
+                          background: c.status === 'replied' ? 'rgba(52,211,153,0.025)' :
+                                      c.status === 'opened' ? 'rgba(167,139,250,0.025)' :
+                                      c.status === 'bounced' ? 'rgba(248,113,113,0.025)' : undefined,
+                        }}>
+                          <td style={{ fontWeight: 500, color: 'var(--text)' }}>{c.firstName}</td>
+                          <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-secondary)' }}>{c.company}</td>
+                          <td>
+                            <span className="industry-tag" style={{ background: (INDUSTRY_COLORS[c.industry] || '#6366f1') + '22', color: INDUSTRY_COLORS[c.industry] || '#6366f1' }}>
+                              {c.industry}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-secondary)' }}>{c.country || '—'}</td>
+                          <td className="rep-cell">{c.assignedTo ? c.assignedTo.split('@')[0] : '—'}</td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                              <span className="status-pill" style={{
+                                background: (STATUS_COLORS[c.status] || '#94a3b8') + '22',
+                                color: STATUS_COLORS[c.status] || '#94a3b8',
+                                border: `1px solid ${(STATUS_COLORS[c.status] || '#94a3b8')}44`,
+                              }}>
+                                {c.status}
+                              </span>
+                              {c.status === 'bounced' && c.linkedIn && (
+                                <span title="Follow up on LinkedIn" style={{ fontSize: 11 }}>💼</span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            {c.linkedIn ? (
+                              <a href={c.linkedIn} target="_blank" rel="noopener noreferrer"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#0a66c2', fontSize: 11, fontWeight: 600, textDecoration: 'none', background: '#0a66c211', border: '1px solid #0a66c222', borderRadius: 4, padding: '2px 7px' }}
+                                title={c.linkedIn}>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="#0a66c2">
+                                  <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                                </svg>
+                                View
+                              </a>
+                            ) : (
+                              <span style={{ color: 'var(--border)', fontSize: 12 }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            {c.openCount > 0 ? (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#a78bfa', fontFamily: "'DM Mono', monospace", fontSize: 11, background: '#a78bfa11', border: '1px solid #a78bfa22', borderRadius: 4, padding: '2px 7px' }}>
+                                👁 {c.openCount}
+                              </span>
+                            ) : <span style={{ color: 'var(--border)' }}>—</span>}
+                          </td>
+                          <td className="date-cell">{c.sentAt ? new Date(c.sentAt).toLocaleDateString() : '—'}</td>
+                        </tr>
+                      ))}
+                      {sorted.length === 0 && (
+                        <tr>
+                          <td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '48px 32px' }}>
+                            <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>
+                            No contacts match the current filters
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {sorted.length > 500 && (
+                  <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center', fontFamily: "'DM Mono', monospace" }}>
+                    Showing first 500 of {sorted.length} contacts
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── SENDERS ── */}
         {activeTab === 'senders' && user && (

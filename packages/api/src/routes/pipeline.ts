@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { readSenders, syncSentCounts } from '../senders';
 
 const router = Router();
@@ -25,7 +27,7 @@ interface Campaign {
   sheetId: string;
   sheetTab: string;
   startedAt: string | null;
-  scheduledAt: string | null;   // ISO string for scheduled start, null = run now
+  scheduledAt: string | null;
   status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled';
   sent: number;
   total: number;
@@ -34,9 +36,54 @@ interface Campaign {
   scheduledTimer?: ReturnType<typeof setTimeout>; // internal, not serialized
 }
 
-const campaigns = new Map<string, Campaign>();
+// ─── Disk persistence ─────────────────────────────────────────────────────────
 
-// Backward-compat helpers
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+const CAMPAIGNS_FILE = path.join(DATA_DIR, 'campaigns.json');
+
+function loadCampaigns(): Map<string, Campaign> {
+  try {
+    if (fs.existsSync(CAMPAIGNS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(CAMPAIGNS_FILE, 'utf8'));
+      const map = new Map<string, Campaign>();
+      for (const [id, c] of Object.entries(raw as Record<string, Campaign>)) {
+        // Any campaign that was "running" at shutdown is now "error"
+        if ((c as Campaign).status === 'running') (c as Campaign).status = 'error';
+        map.set(id, c as Campaign);
+      }
+      console.log(`[campaigns] Loaded ${map.size} campaigns from disk`);
+      return map;
+    }
+  } catch (err) {
+    console.error('[campaigns] Failed to load from disk:', err);
+  }
+  return new Map();
+}
+
+function saveCampaigns(map: Map<string, Campaign>): void {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const obj: Record<string, Omit<Campaign, 'scheduledTimer'>> = {};
+    for (const [id, c] of map) {
+      const { scheduledTimer, ...rest } = c;
+      // Only persist last 50 campaigns to keep file small
+      obj[id] = rest;
+    }
+    // Trim to last 50 by startedAt
+    const entries = Object.entries(obj)
+      .sort(([, a], [, b]) =>
+        (b.startedAt || b.scheduledAt || '').localeCompare(a.startedAt || a.scheduledAt || ''))
+      .slice(0, 50);
+    fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(Object.fromEntries(entries), null, 2));
+  } catch (err) {
+    console.error('[campaigns] Failed to save to disk:', err);
+  }
+}
+
+const campaigns = loadCampaigns();
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function getLastCampaign(): Campaign | undefined {
   let last: Campaign | undefined;
   for (const c of campaigns.values()) {
@@ -90,6 +137,7 @@ async function executeCampaign(
     console.error(`[api] Campaign ${campaign.id} error:`, err.message);
   } finally {
     campaign.log.push({ type: 'done', timestamp: new Date().toISOString() });
+    saveCampaigns(campaigns);
   }
 }
 
@@ -146,6 +194,7 @@ router.post('/run', async (req: Request, res: Response) => {
       executeCampaign(campaign, excludeIds, emailOverrides);
     }, delay);
 
+    saveCampaigns(campaigns);
     res.json({
       ok: true,
       campaignId,
@@ -154,6 +203,7 @@ router.post('/run', async (req: Request, res: Response) => {
   } else {
     // Run immediately
     campaign.scheduledAt = null;
+    saveCampaigns(campaigns);
     res.json({
       ok: true,
       campaignId,
@@ -203,6 +253,7 @@ router.delete('/campaigns/:id', (req: Request, res: Response) => {
   if (c.status !== 'scheduled') return res.status(409).json({ error: 'Can only cancel scheduled campaigns' });
   clearTimeout(c.scheduledTimer);
   c.status = 'cancelled';
+  saveCampaigns(campaigns);
   res.json({ ok: true });
 });
 
