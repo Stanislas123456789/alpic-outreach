@@ -116,10 +116,10 @@ async function processContact(
   // 3. Assign sender to contact
   contact.assignedTo = sender.email;
 
-  // 4. Build email (use override if provided)
+  // 4. Build email (priority: manual override > pre-filled from sheet > template)
   const override = emailOverrides[contact.id];
-  const subject = override?.subject ?? buildSubject(contact);
-  const body = override?.body ?? buildBody(contact);
+  const subject = override?.subject ?? contact.emailSubject || buildSubject(contact);
+  const body = override?.body ?? contact.emailBody || buildBody(contact);
 
   // 5. Dry run preview
   if (DRY_RUN) {

@@ -34,6 +34,7 @@ export interface Contact {
   email: string;
   role: string;
   linkedIn?: string;
+  profileGroup?: string;    // Profile group (A/B/C)
 
   // Company info
   company: string;
@@ -46,12 +47,18 @@ export interface Contact {
   estEmployees?: number;
 
   // Outreach data
-  competitors: string;      // "Omio, Rome2Rio" - from sheet
+  competitorsLive?: string; // "Competitors Already Live"
+  competitors: string;      // "Top 2 Competitors"
   techDNA?: string;
   aiInitiatives?: string;
   urgencyScore?: number;
   outreachAngle?: string;
   language: Language;
+
+  // Pre-filled email content (from sheet)
+  emailSubject?: string;
+  emailBody?: string;
+  weekAdded?: string;
 
   // Pipeline tracking
   status: EmailStatus;
@@ -108,33 +115,39 @@ export interface IndustryMetrics {
 
 // Google Sheets column mapping
 // IMPORTANT: Update these if your sheet columns change
+// New master sheet schema (23 data cols + 9 tracking cols = 32 total, A-AF)
 export const SHEET_COLUMNS = {
-  industry: 0,
-  subIndustry: 1,
-  company: 2,
-  website: 3,
-  contactName: 4,
-  role: 5,
-  linkedIn: 6,
-  email: 7,
-  country: 8,
-  region: 9,
-  estRevenue: 10,
-  estEmployees: 11,
-  competitors: 12,
-  techDNA: 13,
-  aiInitiatives: 14,
-  urgencyScore: 15,
-  outreachAngle: 16,
-  // Pipeline tracking columns (appended)
-  status: 17,
-  assignedTo: 18,
-  sentAt: 19,
-  messageId: 20,
-  threadId: 21,
-  openCount: 22,
-  firstOpenAt: 23,
-  repliedAt: 24,
-  bounceReason: 25,
-  language: 26,
+  // Data zone (A–V, cols 0–21)
+  industry: 0,        // A
+  subIndustry: 1,     // B
+  company: 2,         // C
+  website: 3,         // D
+  contactName: 4,     // E
+  role: 5,            // F
+  linkedIn: 6,        // G
+  email: 7,           // H
+  profileGroup: 8,    // I — NEW (A/B/C)
+  country: 9,         // J
+  region: 10,         // K
+  estRevenue: 11,     // L
+  estEmployees: 12,   // M
+  competitorsLive: 13, // N — NEW "Competitors Already Live"
+  techDNA: 14,        // O
+  aiInitiatives: 15,  // P
+  urgencyScore: 16,   // Q
+  outreachAngle: 17,  // R
+  competitors: 18,    // S — "Top 2 Competitors"
+  emailSubject: 19,   // T — pre-filled subject
+  emailBody: 20,      // U — pre-filled body HTML
+  weekAdded: 21,      // V — week tracking
+  // Tracking zone (W–AE, cols 22–30)
+  status: 22,         // W — "Contacted"
+  assignedTo: 23,     // X
+  sentAt: 24,         // Y
+  messageId: 25,      // Z
+  threadId: 26,       // AA
+  openCount: 27,      // AB
+  firstOpenAt: 28,    // AC
+  repliedAt: 29,      // AD
+  bounceReason: 30,   // AE
 } as const;

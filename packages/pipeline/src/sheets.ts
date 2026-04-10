@@ -9,7 +9,7 @@ dotenv.config();
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 const SHEET_TAB = process.env.GOOGLE_SHEET_TAB || 'Sheet1';
 // Tracking columns start right after the last data column
-const FIRST_TRACKING_COL = 'R'; // Column 18 = R
+const FIRST_TRACKING_COL = 'W'; // Column 23 = W (new schema)
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -102,7 +102,7 @@ export async function getPendingContacts(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: `${sheetTab}!A2:AA`, // A to AA covers all columns
+    range: `${sheetTab}!A2:AE`, // A to AA covers all columns
   });
 
   const rows = res.data.values || [];
@@ -129,6 +129,7 @@ export async function getPendingContacts(
       email,
       role: row[SHEET_COLUMNS.role] || '',
       linkedIn: row[SHEET_COLUMNS.linkedIn] || '',
+      profileGroup: row[SHEET_COLUMNS.profileGroup] || '',
       company: row[SHEET_COLUMNS.company] || '',
       website: row[SHEET_COLUMNS.website] || '',
       industry: row[SHEET_COLUMNS.industry] || '',
@@ -137,12 +138,16 @@ export async function getPendingContacts(
       region: row[SHEET_COLUMNS.region] || '',
       estRevenue: parseFloat(row[SHEET_COLUMNS.estRevenue]) || undefined,
       estEmployees: parseInt(row[SHEET_COLUMNS.estEmployees]) || undefined,
+      competitorsLive: row[SHEET_COLUMNS.competitorsLive] || '',
       competitors: row[SHEET_COLUMNS.competitors] || '',
       techDNA: row[SHEET_COLUMNS.techDNA] || '',
       aiInitiatives: row[SHEET_COLUMNS.aiInitiatives] || '',
       urgencyScore: parseInt(row[SHEET_COLUMNS.urgencyScore]) || undefined,
       outreachAngle: row[SHEET_COLUMNS.outreachAngle] || '',
-      language: (row[SHEET_COLUMNS.language] as any) || 'EN',
+      emailSubject: row[SHEET_COLUMNS.emailSubject] || '',
+      emailBody: row[SHEET_COLUMNS.emailBody] || '',
+      weekAdded: row[SHEET_COLUMNS.weekAdded] || '',
+      language: 'EN',
       status,
       assignedTo: row[SHEET_COLUMNS.assignedTo] || '',
       sentAt: row[SHEET_COLUMNS.sentAt] || '',
@@ -162,12 +167,15 @@ export async function getPendingContacts(
 
 // ─── Get all sent contacts (for reply/bounce polling) ────────────────────────
 
-export async function getSentContacts(): Promise<Contact[]> {
+export async function getSentContacts(
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<Contact[]> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!A2:AA`,
+    spreadsheetId: sheetId,
+    range: `${sheetTab}!A2:AE`,
   });
 
   const rows = res.data.values || [];
@@ -228,15 +236,15 @@ export async function updateContactStatus(
   const sheets = getSheetsClient();
 
   const colMap: Record<string, string> = {
-    status: 'R',
-    assignedTo: 'S',
-    sentAt: 'T',
-    messageId: 'U',
-    threadId: 'V',
-    openCount: 'W',
-    firstOpenAt: 'X',
-    repliedAt: 'Y',
-    bounceReason: 'Z',
+    status: 'W',       // col 22
+    assignedTo: 'X',   // col 23
+    sentAt: 'Y',       // col 24
+    messageId: 'Z',    // col 25
+    threadId: 'AA',    // col 26
+    openCount: 'AB',   // col 27
+    firstOpenAt: 'AC', // col 28
+    repliedAt: 'AD',   // col 29
+    bounceReason: 'AE',// col 30
   };
 
   const data = (Object.keys(updates) as (keyof typeof updates)[])
@@ -269,19 +277,19 @@ export async function incrementOpenCount(
   const sheets = getSheetsClient();
   const newCount = currentCount + 1;
 
-  // openCount is column W (col 23 = index 22), firstOpenAt is column X
+  // openCount is column AB (col 27 = index 27), firstOpenAt is column AC
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: sheetId,
     requestBody: {
       valueInputOption: 'RAW',
       data: [
         {
-          range: `${sheetTab}!W${rowIndex}`,
+          range: `${sheetTab}!AB${rowIndex}`,
           values: [[newCount.toString()]],
         },
         ...(firstOpenAt && currentCount === 0
           ? [{
-              range: `${sheetTab}!X${rowIndex}`,
+              range: `${sheetTab}!AC${rowIndex}`,
               values: [[firstOpenAt]],
             }]
           : []),
@@ -297,7 +305,7 @@ export async function ensureTrackingHeaders(): Promise<void> {
 
   const headers = [
     'status', 'assigned_to', 'sent_at', 'message_id', 'thread_id',
-    'open_count', 'first_open_at', 'replied_at', 'bounce_reason', 'language'
+    'open_count', 'first_open_at', 'replied_at', 'bounce_reason',
   ];
 
   await sheets.spreadsheets.values.update({

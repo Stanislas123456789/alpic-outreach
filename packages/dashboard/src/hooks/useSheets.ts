@@ -8,7 +8,7 @@ import { Contact, RepMetrics, IndustryMetrics, SHEET_COLUMNS } from '../types';
 const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
 
 async function fetchSheetData(sheetId: string, sheetTab: string): Promise<Contact[]> {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetTab}!A2:AA?key=${API_KEY}`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetTab}!A2:AE?key=${API_KEY}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Sheets API error: ${res.status}`);
   const json = await res.json();
@@ -29,8 +29,13 @@ async function fetchSheetData(sheetId: string, sheetTab: string): Promise<Contac
       subIndustry: row[SHEET_COLUMNS.subIndustry] || '',
       country: row[SHEET_COLUMNS.country] || '',
       region: row[SHEET_COLUMNS.region] || '',
+      profileGroup: row[SHEET_COLUMNS.profileGroup] || '',
+      competitorsLive: row[SHEET_COLUMNS.competitorsLive] || '',
       competitors: row[SHEET_COLUMNS.competitors] || '',
-      language: (row[SHEET_COLUMNS.language] as any) || 'EN',
+      emailSubject: row[SHEET_COLUMNS.emailSubject] || '',
+      emailBody: row[SHEET_COLUMNS.emailBody] || '',
+      weekAdded: row[SHEET_COLUMNS.weekAdded] || '',
+      language: 'EN' as const,
       status: (row[SHEET_COLUMNS.status] as any) || 'pending',
       assignedTo: row[SHEET_COLUMNS.assignedTo] || '',
       sentAt: row[SHEET_COLUMNS.sentAt] || '',

@@ -20,13 +20,20 @@ const BOUNCE_SUBJECTS = [
   'failure notice',
   'returned mail',
   'delivery failure',
+  'mail delivery subsystem',
+  'delivery incomplete',
+  'message not delivered',
+  'unable to deliver',
 ];
 
 // ─── Check replies for all sent contacts ─────────────────────────────────────
 
-export async function checkReplies(): Promise<void> {
+export async function checkReplies(
+  sheetId?: string,
+  sheetTab?: string,
+): Promise<void> {
   console.log('🔍 Checking for replies...');
-  const sentContacts = await getSentContacts();
+  const sentContacts = await getSentContacts(sheetId, sheetTab);
   let repliesFound = 0;
 
   for (const contact of sentContacts) {
@@ -57,7 +64,7 @@ export async function checkReplies(): Promise<void> {
           await updateContactStatus(contact.rowIndex, {
             status: 'replied',
             repliedAt: dayjs().toISOString(),
-          });
+          }, sheetId, sheetTab);
           console.log(`✅ Reply detected: ${contact.email}`);
           repliesFound++;
         }
@@ -72,10 +79,16 @@ export async function checkReplies(): Promise<void> {
 
 // ─── Check for bounces in inbox ──────────────────────────────────────────────
 
-export async function checkBounces(): Promise<void> {
+export async function checkBounces(
+  sheetId?: string,
+  sheetTab?: string,
+): Promise<void> {
   console.log('🔍 Checking for bounces...');
   const senders = getSenders();
   let bouncesFound = 0;
+
+  // Load all sent contacts once (to avoid repeated sheet reads)
+  const sentContacts = await getSentContacts(sheetId, sheetTab);
 
   for (const sender of senders) {
     try {
@@ -83,11 +96,12 @@ export async function checkBounces(): Promise<void> {
       auth.setCredentials({ refresh_token: sender.refreshToken });
       const gmail = google.gmail({ version: 'v1', auth });
 
-      // Search for bounce notifications in the last 48h
+      // Search for bounce notifications — extend window to 7 days to catch
+      // delayed bounces (e.g. out-of-office loops, greylisting rejections)
       const res = await gmail.users.messages.list({
         userId: 'me',
-        q: 'subject:(delivery status notification OR undeliverable OR mail delivery failed) newer_than:2d',
-        maxResults: 50,
+        q: 'subject:(delivery status notification OR undeliverable OR "mail delivery failed" OR "message not delivered") newer_than:7d',
+        maxResults: 100,
       });
 
       const messages = res.data.messages || [];
@@ -104,25 +118,34 @@ export async function checkBounces(): Promise<void> {
 
           if (!BOUNCE_SUBJECTS.some(b => subject.includes(b))) continue;
 
-          // Extract the bounced email address from the body
+          // Extract the bounced email address from the body and headers
           const body = extractBody(full.data.payload);
+          const inReplyTo = headers.find(h => h.name === 'In-Reply-To')?.value || '';
+
+          // Try to find the contact: first by email in bounce body,
+          // then by matching the original messageId via In-Reply-To header
+          let contact = null;
+
           const bouncedEmail = extractBouncedEmail(body);
-
           if (bouncedEmail) {
-            // Find the contact in sheets by email
-            const sentContacts = await getSentContacts();
-            const contact = sentContacts.find(
+            contact = sentContacts.find(
               c => c.email.toLowerCase() === bouncedEmail.toLowerCase()
-            );
+            ) || null;
+          }
 
-            if (contact && contact.status !== 'bounced') {
-              await updateContactStatus(contact.rowIndex, {
-                status: 'bounced',
-                bounceReason: subject.slice(0, 100),
-              });
-              console.log(`❌ Bounce detected: ${bouncedEmail}`);
-              bouncesFound++;
-            }
+          // Fallback: match via In-Reply-To → original messageId
+          if (!contact && inReplyTo) {
+            const cleanMsgId = inReplyTo.replace(/[<>]/g, '').trim();
+            contact = sentContacts.find(c => c.messageId === cleanMsgId) || null;
+          }
+
+          if (contact && contact.status !== 'bounced') {
+            await updateContactStatus(contact.rowIndex, {
+              status: 'bounced',
+              bounceReason: subject.slice(0, 100),
+            }, sheetId, sheetTab);
+            console.log(`❌ Bounce detected: ${contact.email}`);
+            bouncesFound++;
           }
         } catch (_) {}
       }
@@ -151,12 +174,24 @@ function extractBody(payload: any): string {
 }
 
 function extractBouncedEmail(body: string): string | null {
-  // Common patterns in bounce messages
+  // Ordered by specificity — most reliable patterns first
   const patterns = [
-    /Final-Recipient:.*?;\s*([\w.+-]+@[\w.-]+\.\w+)/i,
-    /Original-Recipient:.*?;\s*([\w.+-]+@[\w.-]+\.\w+)/i,
-    /failed.*?<([\w.+-]+@[\w.-]+\.\w+)>/i,
-    /undeliverable.*?([\w.+-]+@[\w.-]+\.\w+)/i,
+    // RFC 3464 DSN standard (most reliable)
+    /Final-Recipient:\s*rfc822;\s*([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})/i,
+    /Original-Recipient:\s*rfc822;\s*([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})/i,
+    // Postfix / Sendmail
+    /\bto=<([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})>/i,
+    /\brecip=<?([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})>?/i,
+    // Microsoft Exchange / Office 365
+    /The following recipient\(s\) cannot be reached:\s*'?([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})'?/i,
+    /Recipient:\s*([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})/i,
+    // Generic "<email> failed" patterns
+    /failed.*?<([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})>/i,
+    /undeliverable.*?([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})/i,
+    // Google Workspace NDR
+    /Your message wasn't delivered to\s+([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})/i,
+    // Bare email in bounce context (last resort)
+    /[\s<"]([\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,})[\s>"]/,
   ];
 
   for (const pattern of patterns) {

@@ -84,6 +84,31 @@ const campaigns = loadCampaigns();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Returns unique {sheetId, sheetTab} pairs from all known campaigns (recent first).
+// Used by the cron to run reply/bounce checks across every active sheet.
+export function getUniqueCampaignSheets(): { sheetId: string; sheetTab: string }[] {
+  const seen = new Set<string>();
+  const result: { sheetId: string; sheetTab: string }[] = [];
+  const sorted = Array.from(campaigns.values())
+    .sort((a, b) => (b.startedAt || b.scheduledAt || '').localeCompare(a.startedAt || a.scheduledAt || ''));
+  for (const c of sorted) {
+    if (!c.sheetId) continue;
+    const key = `${c.sheetId}::${c.sheetTab}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push({ sheetId: c.sheetId, sheetTab: c.sheetTab });
+    }
+  }
+  // Always include the env-var default sheet so the cron works even with no campaigns
+  const defaultId = process.env.GOOGLE_SHEET_ID || '';
+  const defaultTab = process.env.GOOGLE_SHEET_TAB || 'Sheet1';
+  const defaultKey = `${defaultId}::${defaultTab}`;
+  if (defaultId && !seen.has(defaultKey)) {
+    result.push({ sheetId: defaultId, sheetTab: defaultTab });
+  }
+  return result;
+}
+
 function getLastCampaign(): Campaign | undefined {
   let last: Campaign | undefined;
   for (const c of campaigns.values()) {
@@ -281,8 +306,11 @@ router.get('/preview', async (req: Request, res: Response) => {
         role: c.role,
         language: c.language,
         competitors: c.competitors,
-        subject: buildSubject(c),
-        body: buildBody(c),
+        competitorsLive: c.competitorsLive,
+        profileGroup: c.profileGroup,
+        weekAdded: c.weekAdded,
+        subject: c.emailSubject || buildSubject(c),
+        body: c.emailBody || buildBody(c),
       }))
     );
   } catch (err: any) {

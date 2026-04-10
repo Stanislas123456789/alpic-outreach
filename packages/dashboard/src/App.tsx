@@ -22,12 +22,12 @@ const INDUSTRY_COLORS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: '#94a3b8',
+  pending: '#64748b',
   sent: '#6366f1',
   opened: '#a78bfa',
   replied: '#34d399',
   bounced: '#f87171',
-  invalid: '#cbd5e1',
+  invalid: '#fb923c',
 };
 
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
@@ -521,20 +521,37 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="chart-card full" style={{ marginTop: 20 }}>
+              <div className="chart-card full">
                 <h2>Reply Rate by Industry</h2>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={industryMetrics} layout="vertical" margin={{ left: 20, right: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
-                    <XAxis type="number" unit="%" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
-                    <YAxis type="category" dataKey="industry" width={160} tick={{ fill: 'var(--text)', fontSize: 13 }} />
-                    <Tooltip
-                      contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}
-                      formatter={(val) => [`${val}%`]}
+                <ResponsiveContainer width="100%" height={Math.max(180, industryMetrics.length * 52)}>
+                  <BarChart data={industryMetrics} layout="vertical" margin={{ left: 8, right: 48, top: 4, bottom: 4 }} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={true} horizontal={false} />
+                    <XAxis
+                      type="number" unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                      axisLine={false} tickLine={false}
                     />
-                    <Bar dataKey="replyRate" radius={[0, 6, 6, 0]} name="Reply Rate">
+                    <YAxis
+                      type="category" dataKey="industry" width={155}
+                      tick={{ fill: 'var(--text)', fontSize: 12, fontWeight: 500 }}
+                      axisLine={false} tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: '#0f1119', border: '1px solid #1d2030',
+                        borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                      }}
+                      labelStyle={{ color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}
+                      formatter={(val) => [`${val}%`, 'Reply Rate']}
+                      cursor={{ fill: 'rgba(99,102,241,0.05)' }}
+                    />
+                    <Bar dataKey="replyRate" radius={[0, 8, 8, 0]} name="Reply Rate" label={{
+                      position: 'right',
+                      formatter: (v: number) => v > 0 ? `${v}%` : '',
+                      fill: 'var(--text-secondary)',
+                      fontSize: 11,
+                    }}>
                       {industryMetrics.map((entry, index) => (
-                        <Cell key={index} fill={INDUSTRY_COLORS[entry.industry] || '#6366f1'} />
+                        <Cell key={index} fill={INDUSTRY_COLORS[entry.industry] || '#6366f1'} fillOpacity={0.85} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -602,17 +619,20 @@ export default function App() {
               <div className="chart-card full">
                 <h2>Rep Performance Comparison</h2>
                 <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={repMetrics} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="repName" tick={{ fill: 'var(--text)', fontSize: 13 }} />
-                    <YAxis unit="%" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
+                  <BarChart data={repMetrics} margin={{ top: 10, right: 16, left: -8, bottom: 0 }} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                    <XAxis dataKey="repName" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
                     <Tooltip
-                      contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}
+                      contentStyle={{ background: '#0f1119', border: '1px solid #1d2030', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
+                      labelStyle={{ color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}
                       formatter={(val) => [`${val}%`]}
+                      cursor={{ fill: 'rgba(99,102,241,0.06)' }}
                     />
-                    <Bar dataKey="openRate" name="Open Rate" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="replyRate" name="Reply Rate" fill="#34d399" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="bounceRate" name="Bounce Rate" fill="#f87171" radius={[4, 4, 0, 0]} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={7} />
+                    <Bar dataKey="openRate" name="Open Rate" fill="#6366f1" radius={[6, 6, 3, 3]} fillOpacity={0.9} />
+                    <Bar dataKey="replyRate" name="Reply Rate" fill="#34d399" radius={[6, 6, 3, 3]} fillOpacity={0.9} />
+                    <Bar dataKey="bounceRate" name="Bounce Rate" fill="#f87171" radius={[6, 6, 3, 3]} fillOpacity={0.9} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -660,19 +680,22 @@ export default function App() {
             </div>
 
             {industryMetrics.length > 0 && (
-              <div className="chart-card full" style={{ marginTop: 24 }}>
+              <div className="chart-card full" style={{ marginTop: 8 }}>
                 <h2>Industry Volume vs Reply Rate</h2>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={industryMetrics} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="industry" tick={{ fill: 'var(--text)', fontSize: 12 }} />
-                    <YAxis yAxisId="left" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
-                    <YAxis yAxisId="right" orientation="right" unit="%" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
+                  <BarChart data={industryMetrics} margin={{ top: 10, right: 16, left: -8, bottom: 0 }} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                    <XAxis dataKey="industry" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="left" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="right" orientation="right" unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
                     <Tooltip
-                      contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}
+                      contentStyle={{ background: '#0f1119', border: '1px solid #1d2030', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
+                      labelStyle={{ color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}
+                      cursor={{ fill: 'rgba(99,102,241,0.06)' }}
                     />
-                    <Bar yAxisId="left" dataKey="sent" name="Emails Sent" fill="#6366f1" radius={[4, 4, 0, 0]} opacity={0.7} />
-                    <Bar yAxisId="right" dataKey="replyRate" name="Reply %" fill="#34d399" radius={[4, 4, 0, 0]} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={7} />
+                    <Bar yAxisId="left" dataKey="sent" name="Emails Sent" fill="#6366f1" radius={[6, 6, 3, 3]} fillOpacity={0.75} />
+                    <Bar yAxisId="right" dataKey="replyRate" name="Reply %" fill="#34d399" radius={[6, 6, 3, 3]} fillOpacity={0.9} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -928,11 +951,17 @@ export default function App() {
                           <td className="rep-cell">{c.assignedTo ? c.assignedTo.split('@')[0] : '—'}</td>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <span className="status-pill" style={{
-                                background: (STATUS_COLORS[c.status] || '#94a3b8') + '22',
-                                color: STATUS_COLORS[c.status] || '#94a3b8',
-                                border: `1px solid ${(STATUS_COLORS[c.status] || '#94a3b8')}44`,
-                              }}>
+                              <span
+                                className="status-pill"
+                                title={(c.status === 'bounced' || c.status === 'invalid') && c.bounceReason ? c.bounceReason : undefined}
+                                style={{
+                                  background: (STATUS_COLORS[c.status] || '#64748b') + '22',
+                                  color: STATUS_COLORS[c.status] || '#64748b',
+                                  border: `1px solid ${(STATUS_COLORS[c.status] || '#64748b')}44`,
+                                  cursor: (c.status === 'bounced' || c.status === 'invalid') && c.bounceReason ? 'help' : undefined,
+                                  textDecoration: (c.status === 'bounced' || c.status === 'invalid') && c.bounceReason ? 'underline dotted' : undefined,
+                                }}
+                              >
                                 {c.status}
                               </span>
                               {c.status === 'bounced' && c.linkedIn && (

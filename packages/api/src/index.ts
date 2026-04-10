@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import sendersRouter from './routes/senders';
-import pipelineRouter from './routes/pipeline';
+import pipelineRouter, { getUniqueCampaignSheets } from './routes/pipeline';
 import {
   readSenders,
   resetDailyCountersIfNeeded,
@@ -174,10 +174,16 @@ async function startPipelineCron() {
     syncSentCounts(getSenders());
   });
 
-  // Reply / bounce check: every 15 min
+  // Reply / bounce check: every 15 min — runs on all unique sheets used by
+  // recent campaigns so non-default-sheet contacts are tracked correctly.
   cron.schedule('*/15 * * * *', async () => {
-    await checkReplies().catch(err => console.error('[cron] Reply check error:', err));
-    await checkBounces().catch(err => console.error('[cron] Bounce check error:', err));
+    const sheetTargets = getUniqueCampaignSheets();
+    for (const { sheetId, sheetTab } of sheetTargets) {
+      await checkReplies(sheetId, sheetTab)
+        .catch(err => console.error(`[cron] Reply check error (${sheetTab}):`, err));
+      await checkBounces(sheetId, sheetTab)
+        .catch(err => console.error(`[cron] Bounce check error (${sheetTab}):`, err));
+    }
   });
 
   // Reset daily counters at midnight
