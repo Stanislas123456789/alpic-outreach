@@ -1,4 +1,7 @@
-FROM node:16-slim
+FROM node:18-slim
+# Enable OpenSSL legacy provider to support older RSA key formats used by
+# Google service accounts (fixes DECODER routines::unsupported on OpenSSL 3)
+ENV NODE_OPTIONS=--openssl-legacy-provider
 
 WORKDIR /app
 
