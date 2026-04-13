@@ -21,69 +21,37 @@ function a1Tab(tab: string): string {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
-/**
- * Robustly parse the GOOGLE_PRIVATE_KEY env var regardless of how it was stored.
- * Handles: literal \n sequences, actual newlines, Windows CRLF, editor padding,
- * surrounding quotes (JSON-stringified), and stray blank lines.
- */
-function parsePemKey(raw: string): string {
-  let key = raw.trim();
-
-  // Remove surrounding quotes if the value was JSON-stringified before storing
-  if ((key.startsWith('"') && key.endsWith('"')) ||
-      (key.startsWith("'") && key.endsWith("'"))) {
-    try {
-      key = JSON.parse(key);
-    } catch {
-      key = key.slice(1, -1);
-    }
-  }
-
-  // Convert literal \n sequences → real newlines (common in .env / Vercel UI)
-  key = key.replace(/\\n/g, '\n');
-
-  // Normalize line endings (Windows CRLF, old Mac CR)
-  key = key.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-  // Apply replace twice — handles double-encoded keys (e.g. Railway storing \\n)
-  key = key.replace(/\\n/g, '\n');
-
-  // Split, trim, filter blank lines
-  const lines = key.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-
-  // Strip any non-base64 characters from body lines (e.g. stray backslash from
-  // mixed-encoding keys where both literal \n AND real newlines coexist).
-  // PEM header/footer lines are kept verbatim.
-  const cleaned = lines.map(l => {
-    if (l.startsWith('-----')) return l;
-    return l.replace(/[^A-Za-z0-9+/=]/g, '');
-  }).filter(l => l.length > 0);
-
-  key = cleaned.join('\n');
-
-  if (!key.includes('-----BEGIN') || !key.includes('-----END')) {
-    throw new Error(
-      'GOOGLE_PRIVATE_KEY does not look like a valid PEM key. ' +
-      'Make sure you copied the full private key including the -----BEGIN / -----END lines, ' +
-      'and that it is stored as a single env var (with \\n between lines if your host requires it).'
-    );
-  }
-
-  return key;
-}
-
 function getAuth() {
+  // Preferred: full service account JSON stored as a single env var.
+  // In Railway: paste the entire contents of your service-account JSON file
+  // into a variable called GOOGLE_SERVICE_ACCOUNT_JSON.
+  const jsonCreds = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (jsonCreds) {
+    const creds = JSON.parse(jsonCreds);
+    return new google.auth.JWT({
+      email: creds.client_email,
+      key: creds.private_key,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+  }
+
+  // Fallback: separate GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY vars.
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const rawKey = process.env.GOOGLE_PRIVATE_KEY;
 
   if (!email || !rawKey) {
     throw new Error(
-      'Missing Google service account credentials. ' +
-      'Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY in your environment variables.'
+      'Missing Google credentials. Set GOOGLE_SERVICE_ACCOUNT_JSON (preferred) ' +
+      'or GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY.'
     );
   }
 
-  const key = parsePemKey(rawKey);
+  // Normalise the raw key: handle literal \\n, CRLF, surrounding quotes.
+  let key = rawKey.trim();
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    try { key = JSON.parse(key); } catch { key = key.slice(1, -1); }
+  }
+  key = key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
   return new google.auth.JWT({
     email,
