@@ -23,7 +23,8 @@ function a1Tab(tab: string): string {
 
 /**
  * Normalise a PEM private key string regardless of how it was stored/encoded.
- * Handles: literal \n, double-encoded \\n, CRLF, surrounding JSON quotes.
+ * Handles: literal \n, double-encoded \\n, CRLF, surrounding JSON quotes,
+ * and any stray non-base64 characters left by mixed-encoding storage.
  */
 function normalisePem(raw: string): string {
   let key = raw.trim();
@@ -31,13 +32,20 @@ function normalisePem(raw: string): string {
   if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
     try { key = JSON.parse(key); } catch { key = key.slice(1, -1); }
   }
-  // Convert literal \n (and \\n for double-encoded) to real newlines
+  // Two passes: handles single and double-encoded \n sequences
   key = key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  // If still has literal \n (double-encoded scenario where Railway converts \n→\\n)
-  if (key.includes('\\n')) {
-    key = key.replace(/\\n/g, '\n');
-  }
-  return key;
+  key = key.replace(/\\n/g, '\n');
+
+  // Split into lines, trim whitespace, drop blanks
+  const lines = key.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  // Strip any stray non-base64 characters from body lines only
+  // (header/footer lines like -----BEGIN PRIVATE KEY----- are kept verbatim)
+  const cleaned = lines.map(l =>
+    l.startsWith('-----') ? l : l.replace(/[^A-Za-z0-9+/=]/g, '')
+  ).filter(l => l.length > 0);
+
+  return cleaned.join('\n');
 }
 
 function getAuth() {
