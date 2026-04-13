@@ -4,6 +4,7 @@
 import express from 'express';
 import cors from 'cors';
 import cron from 'node-cron';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -119,6 +120,42 @@ app.get('/api/diag', async (_req, res) => {
     } catch (e: any) {
       results.GOOGLE_PRIVATE_KEY_parsed = `parse error: ${e.message}`;
     }
+  }
+
+  // Test stripped key with crypto.createPrivateKey
+  try {
+    const rawKey2 = process.env.GOOGLE_PRIVATE_KEY || '';
+    let k = rawKey2.trim();
+    k = k.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    k = k.replace(/\\n/g, '\n');
+    const lns = k.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+    const stripped = lns.map((l: string) => l.startsWith('-----') ? l : l.replace(/[^A-Za-z0-9+/=]/g, '')).filter((l: string) => l.length > 0).join('\n');
+    const remInvalid = lns.filter((l: string) => !l.startsWith('-----')).map((l: string) => l.replace(/[^A-Za-z0-9+/=]/g, '')).join('').replace(/[A-Za-z0-9+/=]/g, '').length;
+    results.GOOGLE_PRIVATE_KEY_after_strip = `${stripped.length} chars, ${remInvalid} invalid chars remaining`;
+    const keyObj = crypto.createPrivateKey(stripped);
+    results.GOOGLE_PRIVATE_KEY_crypto = `OK: ${keyObj.asymmetricKeyType}`;
+  } catch (e: any) {
+    results.GOOGLE_PRIVATE_KEY_crypto = `ERROR: ${e.message}`;
+  }
+
+  // Test GOOGLE_SERVICE_ACCOUNT_JSON key
+  const jsonCredsRaw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (jsonCredsRaw) {
+    try {
+      const creds = JSON.parse(jsonCredsRaw);
+      const jk: string = creds.private_key || '';
+      results.JSON_key_length = `${jk.length} chars, hasRealNewlines:${jk.includes('\n')}, hasLiteralSlashN:${jk.includes('\\n')}`;
+      const jkStripped = jk.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0)
+        .map((l: string) => l.startsWith('-----') ? l : l.replace(/[^A-Za-z0-9+/=]/g, '')).filter((l: string) => l.length > 0).join('\n');
+      const jkInvalid = jkStripped.split('\n').filter((l: string) => !l.startsWith('-----')).join('').replace(/[A-Za-z0-9+/=]/g, '').length;
+      results.JSON_key_stripped = `${jkStripped.length} chars, ${jkInvalid} invalid chars after strip`;
+      const jKeyObj = crypto.createPrivateKey(jkStripped);
+      results.JSON_key_crypto = `OK: ${jKeyObj.asymmetricKeyType}`;
+    } catch (e: any) {
+      results.JSON_key_crypto = `ERROR: ${e.message}`;
+    }
+  } else {
+    results.JSON_key_crypto = 'GOOGLE_SERVICE_ACCOUNT_JSON not set';
   }
 
   // Test Google Sheets connection
