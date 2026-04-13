@@ -3,7 +3,7 @@ import type { AuthUser } from '../hooks/useAuth';
 import type { SenderStatus, PipelineStatus, PreviewContact, PipelineProgress, Campaign } from '../hooks/useApi';
 import { useCampaigns } from '../hooks/useApi';
 import type { SheetSource } from '../hooks/useConfig';
-import SendPreviewModal from './SendPreviewModal';
+import CampaignWizard from './CampaignWizard';
 import SendLiveView from './SendLiveView';
 
 interface Props {

@@ -3,12 +3,35 @@
 // Uses Sheets API v4 with API key (read-only)
 // ============================================
 import { useState, useEffect, useCallback } from 'react';
-import { Contact, RepMetrics, IndustryMetrics, SHEET_COLUMNS } from '../types';
+import { Contact, EmailStatus, RepMetrics, IndustryMetrics, SHEET_COLUMNS } from '../types';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
 
+const VALID_EMAIL_STATUSES = new Set(['pending', 'validating', 'invalid', 'sending', 'sent', 'bounced', 'opened', 'replied', 'skipped']);
+
+function normalizeStatus(raw: string): EmailStatus {
+  const s = (raw || '').toLowerCase().trim();
+  return VALID_EMAIL_STATUSES.has(s) ? s as EmailStatus : 'pending';
+}
+
+function normalizeSentAt(raw: string): string {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) return raw;
+  // Try DD/MM/YYYY or DD/MM/YY
+  const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) {
+    const year = m[3].length === 2 ? '20' + m[3] : m[3];
+    return `${year}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  return '';
+}
+
 async function fetchSheetData(sheetId: string, sheetTab: string): Promise<Contact[]> {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetTab}!A2:AE?key=${API_KEY}`;
+  // Quote tab names with spaces/apostrophes (Google Sheets A1 notation requirement),
+  // then encode the whole range for the REST API URL path.
+  const safeTab = /[\s']/.test(sheetTab) ? `'${sheetTab.replace(/'/g, "\\'")}'` : sheetTab;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(safeTab + '!A2:AE')}?key=${API_KEY}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Sheets API error: ${res.status}`);
   const json = await res.json();
@@ -36,9 +59,9 @@ async function fetchSheetData(sheetId: string, sheetTab: string): Promise<Contac
       emailBody: row[SHEET_COLUMNS.emailBody] || '',
       weekAdded: row[SHEET_COLUMNS.weekAdded] || '',
       language: 'EN' as const,
-      status: (row[SHEET_COLUMNS.status] as any) || 'pending',
+      status: normalizeStatus(row[SHEET_COLUMNS.status] || ''),
       assignedTo: row[SHEET_COLUMNS.assignedTo] || '',
-      sentAt: row[SHEET_COLUMNS.sentAt] || '',
+      sentAt: normalizeSentAt(row[SHEET_COLUMNS.sentAt] || ''),
       messageId: row[SHEET_COLUMNS.messageId] || '',
       threadId: row[SHEET_COLUMNS.threadId] || '',
       openCount: parseInt(row[SHEET_COLUMNS.openCount]) || 0,
@@ -54,7 +77,7 @@ export function computeRepMetrics(contacts: Contact[]): RepMetrics[] {
   const repMap = new Map<string, RepMetrics>();
 
   for (const c of contacts) {
-    if (!c.assignedTo || c.status === 'pending' || c.status === 'invalid') continue;
+    if (!c.assignedTo || !c.assignedTo.includes('@') || c.status === 'pending' || c.status === 'invalid') continue;
 
     if (!repMap.has(c.assignedTo)) {
       repMap.set(c.assignedTo, {

@@ -158,6 +158,51 @@ export async function sendEmail(
   }
 }
 
+// ─── Create a draft (draft mode) ─────────────────────────────────────────────
+
+export async function createDraft(
+  sender: Sender,
+  to: string,
+  subject: string,
+  htmlBody: string,
+  cc?: string
+): Promise<SendResult> {
+  try {
+    const auth = getOAuthClient(sender);
+    const gmail = google.gmail({ version: 'v1', auth });
+
+    const messageParts = [
+      `From: ${sender.name} <${sender.email}>`,
+      `To: ${to}`,
+      ...(cc ? [`Cc: ${cc}`] : []),
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=UTF-8',
+      '',
+      htmlBody,
+    ];
+
+    const rawMessage = Buffer.from(messageParts.join('\r\n'))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const res = await gmail.users.drafts.create({
+      userId: 'me',
+      requestBody: { message: { raw: rawMessage } },
+    });
+
+    return {
+      success: true,
+      messageId: res.data.id || undefined,
+      threadId: res.data.message?.threadId || undefined,
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
 // ─── Reset daily counters (call at midnight) ──────────────────────────────────
 
 export function resetDailyCounters(): void {

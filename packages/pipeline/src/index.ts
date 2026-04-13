@@ -10,7 +10,7 @@ dotenv.config();
 import { getPendingContacts, updateContactStatus, ensureTrackingHeaders } from './sheets';
 import { validateEmail } from './validator';
 import { buildSubject, buildBody, previewEmail } from './template';
-import { pickSender, sendEmail, resetDailyCounters, getSendStats } from './gmail';
+import { pickSender, sendEmail, createDraft, resetDailyCounters, getSendStats } from './gmail';
 import { checkReplies, checkBounces } from './tracker';
 import { Contact } from './types';
 
@@ -65,6 +65,9 @@ async function processContact(
   onProgress?: (e: ProgressEvent) => void,
   sheetId?: string,
   sheetTab?: string,
+  minDelay = MIN_DELAY,
+  maxDelay = MAX_DELAY,
+  draftMode = false,
 ): Promise<void> {
   log(`Processing: ${contact.email} (${contact.company})`);
 
@@ -136,22 +139,27 @@ async function processContact(
     }, sheetId, sheetTab);
   }
 
-  // 7. Send
+  // 7. Send (or create draft)
   const recipient = TEST_EMAIL || contact.email;
   if (TEST_EMAIL) log(`TEST MODE — redirecting to ${TEST_EMAIL}`, 'warn');
-  const result = await sendEmail(sender, recipient, subject, body, CC_EMAIL);
+  if (draftMode) log(`DRAFT MODE — creating draft for ${contact.email}`, 'warn');
+
+  const result = draftMode
+    ? await createDraft(sender, recipient, subject, body, CC_EMAIL)
+    : await sendEmail(sender, recipient, subject, body, CC_EMAIL);
 
   if (result.success) {
     if (!TEST_EMAIL) {
       await updateContactStatus(contact.rowIndex, {
-        status: 'sent',
+        status: draftMode ? ('pending' as any) : 'sent',
         assignedTo: sender.email,
-        sentAt: dayjs().toISOString(),
+        sentAt: draftMode ? undefined : dayjs().toISOString(),
         messageId: result.messageId,
         threadId: result.threadId,
       }, sheetId, sheetTab);
     }
-    log(`Sent to ${contact.firstName} ${contact.lastName} @ ${contact.company} via ${sender.email}`, 'success');
+    const action = draftMode ? 'Draft created for' : 'Sent to';
+    log(`${action} ${contact.firstName} ${contact.lastName} @ ${contact.company} via ${sender.email}`, 'success');
     onProgress?.({
       type: 'sent',
       contactId: contact.id,
@@ -189,13 +197,27 @@ export async function runPipeline(options?: {
   sheetTab?: string;
   emailOverrides?: Record<string, { subject: string; body: string }>;
   onProgress?: (event: ProgressEvent) => void;
+  maxEmails?: number;
+  minDelay?: number;
+  maxDelay?: number;
+  draftMode?: boolean;
 }): Promise<void> {
-  const { onProgress, emailOverrides = {} } = options || {};
+  const {
+    onProgress,
+    emailOverrides = {},
+    maxEmails = BATCH_SIZE,
+    minDelay = MIN_DELAY,
+    maxDelay = MAX_DELAY,
+    draftMode = false,
+  } = options || {};
 
   log(chalk.bold('🚀 Starting Alpic Outreach Pipeline'));
 
   if (DRY_RUN) {
     log(chalk.bgYellow.black(' DRY RUN MODE — No emails will be sent '), 'warn');
+  }
+  if (draftMode) {
+    log(chalk.bgMagenta.white(' DRAFT MODE — Emails will be saved as drafts '), 'warn');
   }
 
   // Print send stats
@@ -206,9 +228,10 @@ export async function runPipeline(options?: {
   } catch (_) {}
 
   // Fetch pending contacts (use custom sheet if provided)
-  log(`Fetching up to ${BATCH_SIZE} pending contacts...`);
+  const fetchLimit = maxEmails + (options?.excludeIds?.length || 0);
+  log(`Fetching up to ${fetchLimit} pending contacts...`);
   let contacts = await getPendingContacts(
-    BATCH_SIZE + (options?.excludeIds?.length || 0),
+    fetchLimit,
     options?.sheetId,
     options?.sheetTab
   );
@@ -216,8 +239,8 @@ export async function runPipeline(options?: {
   // Filter out contacts excluded in the preview step
   if (options?.excludeIds?.length) {
     contacts = contacts.filter(c => !options.excludeIds!.includes(c.id));
-    contacts = contacts.slice(0, BATCH_SIZE);
   }
+  contacts = contacts.slice(0, maxEmails);
 
   log(`Found ${contacts.length} pending contacts`);
 
@@ -232,11 +255,11 @@ export async function runPipeline(options?: {
   for (let i = 0; i < contacts.length; i++) {
     const contact = contacts[i];
 
-    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab);
+    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode);
 
     // Delay between sends (skip delay after last email)
-    if (i < contacts.length - 1 && !DRY_RUN) {
-      const delay = randomDelay();
+    if (i < contacts.length - 1 && !DRY_RUN && !draftMode) {
+      const delay = randomDelay(minDelay, maxDelay);
       log(`⏱  Waiting ${Math.round(delay / 1000)}s before next email...`);
       await sleep(delay);
     }

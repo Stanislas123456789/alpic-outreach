@@ -11,6 +11,14 @@ const SHEET_TAB = process.env.GOOGLE_SHEET_TAB || 'Sheet1';
 // Tracking columns start right after the last data column
 const FIRST_TRACKING_COL = 'W'; // Column 23 = W (new schema)
 
+// Google Sheets A1 notation requires single-quoting tab names that contain spaces or apostrophes.
+function a1Tab(tab: string): string {
+  if (/[\s']/.test(tab)) {
+    return `'${tab.replace(/'/g, "\\'")}'`;
+  }
+  return tab;
+}
+
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 /**
@@ -102,7 +110,7 @@ export async function getPendingContacts(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: `${sheetTab}!A2:AE`, // A to AA covers all columns
+    range: `${a1Tab(sheetTab)}!A2:AE`,
   });
 
   const rows = res.data.values || [];
@@ -175,7 +183,7 @@ export async function getSentContacts(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: `${sheetTab}!A2:AE`,
+    range: `${a1Tab(sheetTab)}!A2:AE`,
   });
 
   const rows = res.data.values || [];
@@ -250,7 +258,7 @@ export async function updateContactStatus(
   const data = (Object.keys(updates) as (keyof typeof updates)[])
     .filter(key => updates[key] !== undefined && colMap[key])
     .map(key => ({
-      range: `${sheetTab}!${colMap[key]}${rowIndex}`,
+      range: `${a1Tab(sheetTab)}!${colMap[key]}${rowIndex}`,
       values: [[updates[key] !== undefined ? String(updates[key]) : '']],
     }));
 
@@ -284,12 +292,12 @@ export async function incrementOpenCount(
       valueInputOption: 'RAW',
       data: [
         {
-          range: `${sheetTab}!AB${rowIndex}`,
+          range: `${a1Tab(sheetTab)}!AB${rowIndex}`,
           values: [[newCount.toString()]],
         },
         ...(firstOpenAt && currentCount === 0
           ? [{
-              range: `${sheetTab}!AC${rowIndex}`,
+              range: `${a1Tab(sheetTab)}!AC${rowIndex}`,
               values: [[firstOpenAt]],
             }]
           : []),
@@ -310,7 +318,7 @@ export async function ensureTrackingHeaders(): Promise<void> {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!${FIRST_TRACKING_COL}1`,
+    range: `${a1Tab(SHEET_TAB)}!${FIRST_TRACKING_COL}1`,
     valueInputOption: 'RAW',
     requestBody: {
       values: [headers],

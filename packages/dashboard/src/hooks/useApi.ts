@@ -24,6 +24,9 @@ export interface PreviewContact {
   role: string;
   language: string;
   competitors: string;
+  competitorsLive?: string;
+  profileGroup?: string;
+  weekAdded?: string;
   subject: string;
   body: string;
 }
@@ -120,6 +123,10 @@ export function useApi(user: AuthUser | null) {
     sheetId?: string;
     tab?: string;
     emailOverrides?: Record<string, { subject: string; body: string }>;
+    maxEmails?: number;
+    speedMode?: 'slow' | 'normal' | 'fast';
+    draftMode?: boolean;
+    scheduledAt?: string;
   }): Promise<{ campaignId?: string }> => {
     setLoading(true);
     setRunMessage(null);

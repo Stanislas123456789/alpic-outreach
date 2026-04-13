@@ -122,13 +122,25 @@ function getLastCampaign(): Campaign | undefined {
 
 // ─── Start a campaign (shared logic) ─────────────────────────────────────────
 
+// Speed mode → delay range (in ms)
+function speedToDelays(speedMode?: string): { minDelay: number; maxDelay: number } {
+  if (speedMode === 'slow') return { minDelay: 180_000, maxDelay: 300_000 };  // 3–5 min
+  if (speedMode === 'fast') return { minDelay: 30_000,  maxDelay: 60_000  };  // 30–60 sec
+  return { minDelay: 90_000, maxDelay: 180_000 }; // normal: 90–180 sec
+}
+
 async function executeCampaign(
   campaign: Campaign,
   excludeIds: string[],
   emailOverrides: Record<string, { subject: string; body: string }>,
+  maxEmails?: number,
+  speedMode?: string,
+  draftMode?: boolean,
 ) {
   campaign.status = 'running';
   campaign.startedAt = new Date().toISOString();
+
+  const { minDelay, maxDelay } = speedToDelays(speedMode);
 
   try {
     const { runPipeline } = await import('../../../pipeline/src/index');
@@ -142,6 +154,10 @@ async function executeCampaign(
       sheetId: campaign.sheetId || undefined,
       sheetTab: campaign.sheetTab || undefined,
       emailOverrides,
+      maxEmails,
+      minDelay,
+      maxDelay,
+      draftMode,
       onProgress: (event: ProgressEvent) => {
         campaign.log.push(event);
         if (event.type === 'start' && event.total != null) {
@@ -182,6 +198,9 @@ router.post('/run', async (req: Request, res: Response) => {
   const sheetTab: string = req.body?.tab || '';
   const emailOverrides: Record<string, { subject: string; body: string }> = req.body?.emailOverrides || {};
   const scheduledAt: string | undefined = req.body?.scheduledAt;
+  const maxEmails: number | undefined = req.body?.maxEmails ? Number(req.body.maxEmails) : undefined;
+  const speedMode: string | undefined = req.body?.speedMode;
+  const draftMode: boolean = req.body?.draftMode === true;
 
   // Check if another campaign is already running for the same sheetId+sheetTab
   for (const c of campaigns.values()) {
@@ -216,7 +235,7 @@ router.post('/run', async (req: Request, res: Response) => {
   if (isInFuture) {
     const delay = scheduleTime.getTime() - now.getTime();
     campaign.scheduledTimer = setTimeout(() => {
-      executeCampaign(campaign, excludeIds, emailOverrides);
+      executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode);
     }, delay);
 
     saveCampaigns(campaigns);
@@ -232,13 +251,14 @@ router.post('/run', async (req: Request, res: Response) => {
     res.json({
       ok: true,
       campaignId,
-      message: 'Pipeline batch started',
+      message: draftMode ? 'Draft campaign started' : 'Pipeline batch started',
       senderCount: senders.length,
       excluded: excludeIds.length,
+      draftMode,
     });
 
     // Run async after responding
-    executeCampaign(campaign, excludeIds, emailOverrides);
+    executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode);
   }
 });
 

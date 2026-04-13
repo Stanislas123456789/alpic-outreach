@@ -706,7 +706,7 @@ export default function App() {
         {/* ── PIPELINE TABLE ── */}
         {activeTab === 'pipeline' && (() => {
           const allStatuses = ['all', 'pending', 'sent', 'opened', 'replied', 'bounced', 'invalid'];
-          const allIndustries = ['all', ...Array.from(new Set(contacts.map(c => c.industry).filter(Boolean)))];
+          const allIndustries = ['all', ...Array.from(new Set(contacts.map(c => c.industry).filter(Boolean))).sort()];
           const allCountries = ['all', ...Array.from(new Set(contacts.map(c => c.country).filter(Boolean))).sort()];
           const allReps = ['all', ...Array.from(new Set(contacts.map(c => c.assignedTo?.split('@')[0]).filter(Boolean))).sort() as string[]];
 
@@ -747,12 +747,6 @@ export default function App() {
             else { setPipelineSortCol(col); setPipelineSortDir('asc'); }
           };
 
-          const sortIcon = (col: string) => (
-            <span style={{ marginLeft: 3, fontSize: 10, opacity: pipelineSortCol === col ? 1 : 0.3, color: pipelineSortCol === col ? 'var(--accent)' : 'var(--text-secondary)' }}>
-              {pipelineSortCol === col ? (pipelineSortDir === 'asc' ? '↑' : '↓') : '⇅'}
-            </span>
-          );
-
           const activeFilterCount = [
             pipelineStatusFilter !== 'all', pipelineIndustryFilter !== 'all',
             !!filterName, !!filterCompany, filterCountry !== 'all',
@@ -766,210 +760,228 @@ export default function App() {
             setFilterLinkedIn('all'); setFilterOpens('all');
           };
 
-          const thBase: React.CSSProperties = {
-            background: '#0e1018', borderBottom: '2px solid var(--border)',
-            padding: 0, verticalAlign: 'top',
+          const formatDate = (dateStr: string) => {
+            if (!dateStr) return '—';
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return '—';
+            return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
           };
-          const colLabel: React.CSSProperties = {
-            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            display: 'flex', alignItems: 'center',
-            color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase',
-            letterSpacing: '0.08em', fontWeight: 600, fontFamily: 'inherit',
-            whiteSpace: 'nowrap',
-          };
-          const fi: React.CSSProperties = {
-            width: '100%', background: 'var(--bg)', border: '1px solid var(--border)',
-            borderRadius: 5, color: 'var(--text)', fontSize: 10, padding: '3px 7px',
-            fontFamily: "'DM Sans', sans-serif", outline: 'none', marginTop: 5,
-          };
+
           const pill = (active: boolean, color: string): React.CSSProperties => ({
-            padding: '2px 5px', borderRadius: 4, fontSize: 9, fontWeight: 700,
-            cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1.6,
-            border: active ? `1px solid ${color}` : '1px solid transparent',
-            background: active ? color + '33' : 'rgba(255,255,255,0.04)',
+            padding: '3px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1.6, transition: 'all 0.12s',
+            border: active ? `1px solid ${color}55` : '1px solid rgba(255,255,255,0.08)',
+            background: active ? color + '22' : 'rgba(255,255,255,0.03)',
             color: active ? color : 'var(--text-secondary)',
           });
 
+          const ctrlInput: React.CSSProperties = {
+            background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 6,
+            color: 'var(--text)', fontSize: 11, padding: '5px 10px',
+            fontFamily: 'inherit', outline: 'none',
+          };
+          const ctrlSelect: React.CSSProperties = {
+            ...ctrlInput, cursor: 'pointer', appearance: 'none' as const,
+            paddingRight: 24, backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+            backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center',
+          };
+
+          const SortTh = ({ col, label, align }: { col: string; label: string; align?: string }) => (
+            <th onClick={() => handleSort(col)} style={{
+              background: '#0c0e15', borderBottom: '2px solid var(--border)',
+              padding: '11px 13px', textAlign: (align as any) || 'left',
+              cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
+              position: 'sticky', top: 0, zIndex: 10,
+            }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: pipelineSortCol === col ? 'var(--text)' : 'var(--text-secondary)',
+              }}>
+                {label}
+                <span style={{ fontSize: 9, opacity: pipelineSortCol === col ? 1 : 0.3, color: pipelineSortCol === col ? 'var(--accent)' : 'inherit' }}>
+                  {pipelineSortCol === col ? (pipelineSortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                </span>
+              </span>
+            </th>
+          );
+
+          const StaticTh = ({ label }: { label: string }) => (
+            <th style={{
+              background: '#0c0e15', borderBottom: '2px solid var(--border)',
+              padding: '11px 13px', position: 'sticky', top: 0, zIndex: 10,
+            }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                {label}
+              </span>
+            </th>
+          );
+
           return (
             <div className="tab-content">
-              {/* Toolbar */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              {/* ── Filter bar ── */}
+              <div style={{
+                background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)',
+                borderRadius: 10, padding: '12px 14px', marginBottom: 10,
+              }}>
+                {/* Row 1: text + dropdown filters */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: 9 }}>
+                  <input type="text" placeholder="Search name…" value={filterName} onChange={e => setFilterName(e.target.value)}
+                    style={{ ...ctrlInput, width: 120, borderColor: filterName ? 'var(--accent)' : 'var(--border)' }} />
+                  <input type="text" placeholder="Search company…" value={filterCompany} onChange={e => setFilterCompany(e.target.value)}
+                    style={{ ...ctrlInput, width: 150, borderColor: filterCompany ? 'var(--accent)' : 'var(--border)' }} />
+                  <select value={filterCountry} onChange={e => setFilterCountry(e.target.value)}
+                    style={{ ...ctrlSelect, width: 120, borderColor: filterCountry !== 'all' ? 'var(--accent)' : 'var(--border)', color: filterCountry !== 'all' ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                    <option value="all">All countries</option>
+                    {allCountries.filter(c => c !== 'all').map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select value={pipelineIndustryFilter} onChange={e => setPipelineIndustryFilter(e.target.value)}
+                    style={{ ...ctrlSelect, width: 140, borderColor: pipelineIndustryFilter !== 'all' ? 'var(--accent)' : 'var(--border)', color: pipelineIndustryFilter !== 'all' ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                    <option value="all">All industries</option>
+                    {allIndustries.filter(i => i !== 'all').map(i => <option key={i} value={i}>{i}</option>)}
+                  </select>
+                  <select value={filterAssignedTo} onChange={e => setFilterAssignedTo(e.target.value)}
+                    style={{ ...ctrlSelect, width: 130, borderColor: filterAssignedTo !== 'all' ? 'var(--accent)' : 'var(--border)', color: filterAssignedTo !== 'all' ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                    <option value="all">All reps</option>
+                    {allReps.filter(r => r !== 'all').map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginLeft: 4 }}>
+                    <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.06em', marginRight: 2 }}>LI</span>
+                    {(['all', 'yes', 'no'] as const).map(v => (
+                      <button key={v} onClick={() => setFilterLinkedIn(v)} style={pill(filterLinkedIn === v, '#0a66c2')}>
+                        {v === 'all' ? 'ALL' : v === 'yes' ? 'HAS' : 'NONE'}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+                    <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.06em', marginRight: 2 }}>OPENS</span>
+                    {(['all', 'yes'] as const).map(v => (
+                      <button key={v} onClick={() => setFilterOpens(v)} style={pill(filterOpens === v, '#a78bfa')}>
+                        {v === 'all' ? 'ALL' : 'HAS'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Row 2: status pills */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.06em', marginRight: 4 }}>STATUS</span>
+                  {allStatuses.map(s => (
+                    <button key={s} onClick={() => setPipelineStatusFilter(s)} style={pill(pipelineStatusFilter === s, STATUS_COLORS[s] || 'var(--accent)')}>
+                      {s === 'all' ? 'ALL' : s.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Results bar ── */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  <strong style={{ color: 'var(--text)' }}>{sorted.length.toLocaleString()}</strong>
+                  <span> of {contacts.length.toLocaleString()} contacts</span>
+                </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{
-                    fontSize: 12, fontWeight: 600,
-                    background: 'var(--accent)1a', border: '1px solid var(--accent)33',
-                    borderRadius: 6, padding: '4px 10px', color: 'var(--text)',
-                  }}>
-                    {sorted.length} <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>of {contacts.length}</span>
-                  </span>
+                  {pipelineSortCol && (
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: "'DM Mono', monospace" }}>
+                      Sort: {pipelineSortCol} {pipelineSortDir === 'asc' ? '↑' : '↓'}
+                    </span>
+                  )}
                   {activeFilterCount > 0 && (
                     <button onClick={clearAllFilters} style={{
                       background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-                      color: 'var(--text-secondary)', fontSize: 11, padding: '4px 10px',
-                      cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4,
+                      color: 'var(--text-secondary)', fontSize: 11, padding: '3px 10px',
+                      cursor: 'pointer', fontFamily: 'inherit',
                     }}>
                       ✕ Clear {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''}
                     </button>
                   )}
                 </div>
-                {pipelineSortCol && (
-                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: "'DM Mono', monospace" }}>
-                    {pipelineSortCol} {pipelineSortDir === 'asc' ? '↑' : '↓'}
-                  </span>
-                )}
               </div>
 
+              {/* ── Table ── */}
               <div className="chart-card full" style={{ padding: 0, overflow: 'hidden' }}>
-                <div className="table-wrap">
-                  <table className="pipeline-table" style={{ tableLayout: 'fixed', minWidth: 960 }}>
+                <div className="table-wrap" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 360px)' }}>
+                  <table className="pipeline-table" style={{ tableLayout: 'fixed', minWidth: 900, width: '100%' }}>
                     <colgroup>
-                      <col style={{ width: '9%' }} />
-                      <col style={{ width: '14%' }} />
-                      <col style={{ width: '12%' }} />
-                      <col style={{ width: '8%' }} />
-                      <col style={{ width: '10%' }} />
-                      <col style={{ width: '19%' }} />
-                      <col style={{ width: '8%' }} />
-                      <col style={{ width: '8%' }} />
-                      <col style={{ width: '10%' }} />
+                      <col style={{ width: 120 }} />
+                      <col style={{ width: 170 }} />
+                      <col style={{ width: 100 }} />
+                      <col style={{ width: 76 }} />
+                      <col style={{ width: 110 }} />
+                      <col style={{ width: 105 }} />
+                      <col style={{ width: 80 }} />
+                      <col style={{ width: 70 }} />
+                      <col style={{ width: 100 }} />
                     </colgroup>
                     <thead>
                       <tr>
-                        {/* NAME */}
-                        <th style={thBase}>
-                          <div style={{ padding: '10px 12px 9px' }}>
-                            <button style={colLabel} onClick={() => handleSort('name')}>NAME {sortIcon('name')}</button>
-                            <input type="text" placeholder="Search…" value={filterName}
-                              onChange={e => setFilterName(e.target.value)}
-                              style={{ ...fi, borderColor: filterName ? 'var(--accent)' : 'var(--border)' }} />
-                          </div>
-                        </th>
-                        {/* COMPANY */}
-                        <th style={thBase}>
-                          <div style={{ padding: '10px 12px 9px' }}>
-                            <button style={colLabel} onClick={() => handleSort('company')}>COMPANY {sortIcon('company')}</button>
-                            <input type="text" placeholder="Search…" value={filterCompany}
-                              onChange={e => setFilterCompany(e.target.value)}
-                              style={{ ...fi, borderColor: filterCompany ? 'var(--accent)' : 'var(--border)' }} />
-                          </div>
-                        </th>
-                        {/* INDUSTRY */}
-                        <th style={thBase}>
-                          <div style={{ padding: '10px 12px 9px' }}>
-                            <button style={colLabel} onClick={() => handleSort('industry')}>INDUSTRY {sortIcon('industry')}</button>
-                            <select value={pipelineIndustryFilter} onChange={e => setPipelineIndustryFilter(e.target.value)}
-                              style={{ ...fi, cursor: 'pointer', borderColor: pipelineIndustryFilter !== 'all' ? 'var(--accent)' : 'var(--border)', color: pipelineIndustryFilter !== 'all' ? 'var(--accent)' : 'var(--text-secondary)' }}>
-                              {allIndustries.map(ind => <option key={ind} value={ind}>{ind === 'all' ? 'All industries' : ind}</option>)}
-                            </select>
-                          </div>
-                        </th>
-                        {/* COUNTRY */}
-                        <th style={thBase}>
-                          <div style={{ padding: '10px 12px 9px' }}>
-                            <button style={colLabel} onClick={() => handleSort('country')}>COUNTRY {sortIcon('country')}</button>
-                            <select value={filterCountry} onChange={e => setFilterCountry(e.target.value)}
-                              style={{ ...fi, cursor: 'pointer', borderColor: filterCountry !== 'all' ? 'var(--accent)' : 'var(--border)', color: filterCountry !== 'all' ? 'var(--accent)' : 'var(--text-secondary)' }}>
-                              {allCountries.map(c => <option key={c} value={c}>{c === 'all' ? 'All' : c}</option>)}
-                            </select>
-                          </div>
-                        </th>
-                        {/* ASSIGNED TO */}
-                        <th style={thBase}>
-                          <div style={{ padding: '10px 12px 9px' }}>
-                            <button style={colLabel} onClick={() => handleSort('assignedTo')}>ASSIGNED {sortIcon('assignedTo')}</button>
-                            <select value={filterAssignedTo} onChange={e => setFilterAssignedTo(e.target.value)}
-                              style={{ ...fi, cursor: 'pointer', borderColor: filterAssignedTo !== 'all' ? 'var(--accent)' : 'var(--border)', color: filterAssignedTo !== 'all' ? 'var(--accent)' : 'var(--text-secondary)' }}>
-                              {allReps.map(r => <option key={r} value={r}>{r === 'all' ? 'All reps' : r}</option>)}
-                            </select>
-                          </div>
-                        </th>
-                        {/* STATUS */}
-                        <th style={thBase}>
-                          <div style={{ padding: '10px 12px 9px' }}>
-                            <button style={colLabel} onClick={() => handleSort('status')}>STATUS {sortIcon('status')}</button>
-                            <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginTop: 5 }}>
-                              {allStatuses.map(s => (
-                                <button key={s} onClick={() => setPipelineStatusFilter(s)}
-                                  style={pill(pipelineStatusFilter === s, STATUS_COLORS[s] || 'var(--accent)')}>
-                                  {s === 'all' ? 'ALL' : s.toUpperCase()}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </th>
-                        {/* LINKEDIN */}
-                        <th style={thBase}>
-                          <div style={{ padding: '10px 12px 9px' }}>
-                            <span style={{ ...colLabel, cursor: 'default' }}>LINKEDIN</span>
-                            <div style={{ display: 'flex', gap: 2, marginTop: 5 }}>
-                              {(['all', 'yes', 'no'] as const).map(v => (
-                                <button key={v} onClick={() => setFilterLinkedIn(v)}
-                                  style={pill(filterLinkedIn === v, '#0a66c2')}>
-                                  {v === 'all' ? 'ALL' : v === 'yes' ? 'HAS' : 'NO'}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </th>
-                        {/* OPENS */}
-                        <th style={thBase}>
-                          <div style={{ padding: '10px 12px 9px' }}>
-                            <button style={colLabel} onClick={() => handleSort('opens')}>OPENS {sortIcon('opens')}</button>
-                            <div style={{ display: 'flex', gap: 2, marginTop: 5 }}>
-                              {(['all', 'yes'] as const).map(v => (
-                                <button key={v} onClick={() => setFilterOpens(v)}
-                                  style={pill(filterOpens === v, '#a78bfa')}>
-                                  {v === 'all' ? 'ALL' : 'HAS'}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </th>
-                        {/* SENT AT */}
-                        <th style={thBase}>
-                          <div style={{ padding: '10px 12px 9px' }}>
-                            <button style={colLabel} onClick={() => handleSort('sentAt')}>SENT AT {sortIcon('sentAt')}</button>
-                          </div>
-                        </th>
+                        <SortTh col="name" label="Name" />
+                        <SortTh col="company" label="Company" />
+                        <SortTh col="industry" label="Industry" />
+                        <SortTh col="country" label="Country" align="center" />
+                        <SortTh col="assignedTo" label="Assigned" />
+                        <SortTh col="status" label="Status" />
+                        <StaticTh label="LinkedIn" />
+                        <SortTh col="opens" label="Opens" align="center" />
+                        <SortTh col="sentAt" label="Sent At" />
                       </tr>
                     </thead>
                     <tbody>
-                      {sorted.slice(0, 500).map((c) => (
-                        <tr key={c.id} style={{
-                          background: c.status === 'replied' ? 'rgba(52,211,153,0.025)' :
-                                      c.status === 'opened' ? 'rgba(167,139,250,0.025)' :
-                                      c.status === 'bounced' ? 'rgba(248,113,113,0.025)' : undefined,
-                        }}>
-                          <td style={{ fontWeight: 500, color: 'var(--text)' }}>{c.firstName}</td>
-                          <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-secondary)' }}>{c.company}</td>
-                          <td>
-                            <span className="industry-tag" style={{ background: (INDUSTRY_COLORS[c.industry] || '#6366f1') + '22', color: INDUSTRY_COLORS[c.industry] || '#6366f1' }}>
-                              {c.industry}
-                            </span>
+                      {sorted.slice(0, 500).map((c, idx) => (
+                        <tr key={c.id + idx}
+                          style={{
+                            borderBottom: '1px solid rgba(255,255,255,0.04)',
+                            background: idx % 2 === 1 ? 'rgba(255,255,255,0.012)' : undefined,
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.07)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 1 ? 'rgba(255,255,255,0.012)' : '')}
+                        >
+                          <td style={{ padding: '8px 13px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
+                            {c.firstName}
                           </td>
-                          <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-secondary)' }}>{c.country || '—'}</td>
-                          <td className="rep-cell">{c.assignedTo ? c.assignedTo.split('@')[0] : '—'}</td>
-                          <td>
+                          <td style={{ padding: '8px 13px', fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.company}>
+                            {c.company}
+                          </td>
+                          <td style={{ padding: '8px 13px' }}>
+                            {c.industry ? (
+                              <span style={{
+                                background: (INDUSTRY_COLORS[c.industry] || '#6366f1') + '20',
+                                color: INDUSTRY_COLORS[c.industry] || '#6366f1',
+                                fontSize: 10, padding: '2px 7px', borderRadius: 4, fontWeight: 700,
+                                whiteSpace: 'nowrap', display: 'inline-block',
+                              }}>
+                                {c.industry}
+                              </span>
+                            ) : <span style={{ color: 'var(--border)' }}>—</span>}
+                          </td>
+                          <td style={{ padding: '8px 13px', fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>
+                            {c.country || '—'}
+                          </td>
+                          <td style={{ padding: '8px 13px', fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.assignedTo ? c.assignedTo.split('@')[0] : '—'}
+                          </td>
+                          <td style={{ padding: '8px 13px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                               <span
                                 className="status-pill"
-                                title={(c.status === 'bounced' || c.status === 'invalid') && c.bounceReason ? c.bounceReason : undefined}
+                                title={c.bounceReason || undefined}
                                 style={{
                                   background: (STATUS_COLORS[c.status] || '#64748b') + '22',
                                   color: STATUS_COLORS[c.status] || '#64748b',
                                   border: `1px solid ${(STATUS_COLORS[c.status] || '#64748b')}44`,
-                                  cursor: (c.status === 'bounced' || c.status === 'invalid') && c.bounceReason ? 'help' : undefined,
-                                  textDecoration: (c.status === 'bounced' || c.status === 'invalid') && c.bounceReason ? 'underline dotted' : undefined,
+                                  fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 700,
+                                  whiteSpace: 'nowrap', textTransform: 'capitalize',
+                                  cursor: c.bounceReason ? 'help' : undefined,
                                 }}
                               >
                                 {c.status}
                               </span>
                               {c.status === 'bounced' && c.linkedIn && (
-                                <span title="Follow up on LinkedIn" style={{ fontSize: 11 }}>💼</span>
+                                <span title="Follow up on LinkedIn" style={{ fontSize: 10 }}>💼</span>
                               )}
                             </div>
                           </td>
-                          <td>
+                          <td style={{ padding: '8px 13px' }}>
                             {c.linkedIn ? (
                               <a href={c.linkedIn} target="_blank" rel="noopener noreferrer"
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#0a66c2', fontSize: 11, fontWeight: 600, textDecoration: 'none', background: '#0a66c211', border: '1px solid #0a66c222', borderRadius: 4, padding: '2px 7px' }}
@@ -983,21 +995,24 @@ export default function App() {
                               <span style={{ color: 'var(--border)', fontSize: 12 }}>—</span>
                             )}
                           </td>
-                          <td>
+                          <td style={{ padding: '8px 13px', textAlign: 'center' }}>
                             {c.openCount > 0 ? (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#a78bfa', fontFamily: "'DM Mono', monospace", fontSize: 11, background: '#a78bfa11', border: '1px solid #a78bfa22', borderRadius: 4, padding: '2px 7px' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#a78bfa', fontFamily: "'DM Mono', monospace", fontSize: 11, background: '#a78bfa11', border: '1px solid #a78bfa22', borderRadius: 4, padding: '2px 7px' }}>
                                 👁 {c.openCount}
                               </span>
                             ) : <span style={{ color: 'var(--border)' }}>—</span>}
                           </td>
-                          <td className="date-cell">{c.sentAt ? new Date(c.sentAt).toLocaleDateString() : '—'}</td>
+                          <td style={{ padding: '8px 13px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                            {formatDate(c.sentAt || '')}
+                          </td>
                         </tr>
                       ))}
                       {sorted.length === 0 && (
                         <tr>
-                          <td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '48px 32px' }}>
-                            <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>
-                            No contacts match the current filters
+                          <td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '64px 32px' }}>
+                            <div style={{ fontSize: 32, marginBottom: 10 }}>🔍</div>
+                            <div style={{ fontWeight: 600, marginBottom: 4 }}>No contacts match</div>
+                            <div style={{ fontSize: 11 }}>Try adjusting your filters</div>
                           </td>
                         </tr>
                       )}
@@ -1006,7 +1021,7 @@ export default function App() {
                 </div>
                 {sorted.length > 500 && (
                   <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center', fontFamily: "'DM Mono', monospace" }}>
-                    Showing first 500 of {sorted.length} contacts
+                    Showing first 500 of {sorted.length.toLocaleString()} contacts
                   </div>
                 )}
               </div>
