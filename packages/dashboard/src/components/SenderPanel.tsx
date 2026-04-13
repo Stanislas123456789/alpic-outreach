@@ -497,14 +497,31 @@ export default function SenderPanel({
         </div>
       )}
 
-      {/* ── Preview modal ────────────────────────────────────────── */}
+      {/* ── Campaign wizard ──────────────────────────────────────── */}
       {showPreview && (
-        <SendPreviewModal
-          sheetId={pickedSheetId}
-          sheetTab={pickedSheetTab}
+        <CampaignWizard
+          user={user}
+          sources={sources}
+          activeSheetId={pickedSheetId}
+          activeSheetTab={pickedSheetTab}
+          onManageSources={onManageSources}
           fetchPreview={fetchPreview}
+          pollProgress={pollProgress}
+          onLaunch={async (opts) => {
+            setShowPreview(false);
+            const result = await onRunPipeline({
+              excludeIds: opts.excludeIds,
+              sheetId: opts.sheetId,
+              tab: opts.tab,
+              emailOverrides: opts.emailOverrides,
+              ...(opts as any),
+            } as any);
+            const campaignId = (result as any)?.campaignId;
+            if (campaignId) setActiveCampaignId(campaignId);
+            setShowLive(true);
+            return { campaignId };
+          }}
           onClose={() => setShowPreview(false)}
-          onConfirm={handleConfirm}
         />
       )}
     </div>
