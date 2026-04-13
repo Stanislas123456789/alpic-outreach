@@ -17,8 +17,8 @@ RUN npm install -g tsx
 COPY packages/pipeline/src packages/pipeline/src
 COPY packages/api/src packages/api/src
 
-# Senders data
-COPY packages/api/data /app/data
+# Senders data — must match __dirname of packages/api/src/ + '../data'
+COPY packages/api/data /app/packages/api/data
 
 EXPOSE 8080
 CMD ["tsx", "packages/api/src/index.ts"]
