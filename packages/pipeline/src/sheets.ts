@@ -21,16 +21,35 @@ function a1Tab(tab: string): string {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
+/**
+ * Normalise a PEM private key string regardless of how it was stored/encoded.
+ * Handles: literal \n, double-encoded \\n, CRLF, surrounding JSON quotes.
+ */
+function normalisePem(raw: string): string {
+  let key = raw.trim();
+  // Strip surrounding quotes (JSON-stringified storage)
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    try { key = JSON.parse(key); } catch { key = key.slice(1, -1); }
+  }
+  // Convert literal \n (and \\n for double-encoded) to real newlines
+  key = key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  // If still has literal \n (double-encoded scenario where Railway converts \n→\\n)
+  if (key.includes('\\n')) {
+    key = key.replace(/\\n/g, '\n');
+  }
+  return key;
+}
+
 function getAuth() {
   // Preferred: full service account JSON stored as a single env var.
-  // In Railway: paste the entire contents of your service-account JSON file
-  // into a variable called GOOGLE_SERVICE_ACCOUNT_JSON.
   const jsonCreds = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (jsonCreds) {
     const creds = JSON.parse(jsonCreds);
+    // Normalise the private key — Railway may double-encode newlines
+    const key = normalisePem(creds.private_key);
     return new google.auth.JWT({
       email: creds.client_email,
-      key: creds.private_key,
+      key,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
   }
@@ -46,16 +65,9 @@ function getAuth() {
     );
   }
 
-  // Normalise the raw key: handle literal \\n, CRLF, surrounding quotes.
-  let key = rawKey.trim();
-  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
-    try { key = JSON.parse(key); } catch { key = key.slice(1, -1); }
-  }
-  key = key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
   return new google.auth.JWT({
     email,
-    key,
+    key: normalisePem(rawKey),
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
 }

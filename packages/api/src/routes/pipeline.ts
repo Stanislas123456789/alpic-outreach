@@ -359,4 +359,38 @@ router.get('/status', (_req: Request, res: Response) => {
   });
 });
 
+// GET /api/pipeline/auth-debug — diagnose Google auth env vars (no secrets exposed)
+router.get('/auth-debug', (_req: Request, res: Response) => {
+  const jsonCreds = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const rawKey = process.env.GOOGLE_PRIVATE_KEY;
+
+  let jsonInfo: Record<string, unknown> = { present: false };
+  if (jsonCreds) {
+    try {
+      const creds = JSON.parse(jsonCreds);
+      const key = creds.private_key as string || '';
+      jsonInfo = {
+        present: true,
+        parseOk: true,
+        clientEmail: creds.client_email,
+        keyLength: key.length,
+        keyHasRealNewlines: key.includes('\n'),
+        keyHasLiteralSlashN: key.includes('\\n'),
+        keyStarts: key.substring(0, 30),
+      };
+    } catch (e: any) {
+      jsonInfo = { present: true, parseOk: false, error: e.message, first100: jsonCreds.substring(0, 100) };
+    }
+  }
+
+  res.json({
+    GOOGLE_SERVICE_ACCOUNT_JSON: jsonInfo,
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: email ? `set (${email})` : 'not set',
+    GOOGLE_PRIVATE_KEY: rawKey
+      ? { present: true, length: rawKey.length, hasRealNewlines: rawKey.includes('\n'), hasLiteralSlashN: rawKey.includes('\\n') }
+      : { present: false },
+  });
+});
+
 export default router;
