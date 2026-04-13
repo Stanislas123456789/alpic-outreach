@@ -307,7 +307,7 @@ router.delete('/campaigns/:id', (req: Request, res: Response) => {
 router.get('/preview', async (req: Request, res: Response) => {
   const sheetId = req.query.sheetId as string | undefined;
   const tab = req.query.tab as string | undefined;
-  const limit = Math.min(parseInt(req.query.limit as string || '10'), 50);
+  const limit = Math.min(parseInt(req.query.limit as string || '10'), 500);
 
   try {
     const { getPendingContacts } = await import('../../../pipeline/src/sheets');

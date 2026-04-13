@@ -118,10 +118,10 @@ export async function getPendingContacts(
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const status = row[SHEET_COLUMNS.status] as EmailStatus || 'pending';
-
-    // Only process pending rows
-    if (status !== 'pending' && (status as string) !== '') continue;
+    const rawStatus = (row[SHEET_COLUMNS.status] || '').toString().toLowerCase().trim();
+    const DONE_STATUSES = new Set(['sent', 'bounced', 'opened', 'replied', 'skipped', 'invalid', 'sending']);
+    if (DONE_STATUSES.has(rawStatus)) continue;
+    const status = (rawStatus === 'pending' || rawStatus === '' ? 'pending' : 'pending') as EmailStatus;
 
     const email = row[SHEET_COLUMNS.email]?.trim();
     if (!email) continue;
