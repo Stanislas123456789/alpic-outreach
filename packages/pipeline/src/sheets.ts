@@ -9,7 +9,7 @@ dotenv.config();
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 const SHEET_TAB = process.env.GOOGLE_SHEET_TAB || 'Sheet1';
 // Tracking columns start right after the last data column
-const FIRST_TRACKING_COL = 'R'; // Column 17 = R (actual sheet schema)
+const FIRST_TRACKING_COL = 'W'; // Column 22 = W (Master Table schema)
 
 // Google Sheets A1 notation requires single-quoting tab names that contain spaces or apostrophes.
 function a1Tab(tab: string): string {
@@ -125,6 +125,7 @@ export async function getPendingContacts(
       email,
       role: row[SHEET_COLUMNS.role] || '',
       linkedIn: row[SHEET_COLUMNS.linkedIn] || '',
+      profileGroup: row[SHEET_COLUMNS.profileGroup] || '',
       company: row[SHEET_COLUMNS.company] || '',
       website: row[SHEET_COLUMNS.website] || '',
       industry: row[SHEET_COLUMNS.industry] || '',
@@ -133,13 +134,16 @@ export async function getPendingContacts(
       region: row[SHEET_COLUMNS.region] || '',
       estRevenue: parseFloat(row[SHEET_COLUMNS.estRevenue]) || undefined,
       estEmployees: parseInt(row[SHEET_COLUMNS.estEmployees]) || undefined,
-      competitors: row[SHEET_COLUMNS.competitors] || '',
       competitorsLive: row[SHEET_COLUMNS.competitorsLive] || '',
+      competitors: row[SHEET_COLUMNS.competitors] || '',
       techDNA: row[SHEET_COLUMNS.techDNA] || '',
       aiInitiatives: row[SHEET_COLUMNS.aiInitiatives] || '',
       urgencyScore: parseInt(row[SHEET_COLUMNS.urgencyScore]) || undefined,
       outreachAngle: row[SHEET_COLUMNS.outreachAngle] || '',
-      language: (row[SHEET_COLUMNS.language] || 'EN') as 'EN' | 'FR' | 'DE' | 'ES',
+      emailSubject: row[SHEET_COLUMNS.emailSubject] || '',
+      emailBody: row[SHEET_COLUMNS.emailBody] || '',
+      weekAdded: row[SHEET_COLUMNS.weekAdded] || '',
+      language: 'EN',
       status,
       assignedTo: row[SHEET_COLUMNS.assignedTo] || '',
       sentAt: row[SHEET_COLUMNS.sentAt] || '',
@@ -228,15 +232,15 @@ export async function updateContactStatus(
   const sheets = getSheetsClient();
 
   const colMap: Record<string, string> = {
-    status: 'R',        // col 17
-    assignedTo: 'S',    // col 18
-    sentAt: 'T',        // col 19
-    messageId: 'U',     // col 20
-    threadId: 'V',      // col 21
-    openCount: 'W',     // col 22
-    firstOpenAt: 'X',   // col 23
-    repliedAt: 'Y',     // col 24
-    bounceReason: 'Z',  // col 25
+    status: 'W',        // col 22
+    assignedTo: 'X',    // col 23
+    sentAt: 'Y',        // col 24
+    messageId: 'Z',     // col 25
+    threadId: 'AA',     // col 26
+    openCount: 'AB',    // col 27
+    firstOpenAt: 'AC',  // col 28
+    repliedAt: 'AD',    // col 29
+    bounceReason: 'AE', // col 30
   };
 
   const data = (Object.keys(updates) as (keyof typeof updates)[])
@@ -269,19 +273,19 @@ export async function incrementOpenCount(
   const sheets = getSheetsClient();
   const newCount = currentCount + 1;
 
-  // openCount is column W (col 22), firstOpenAt is column X (col 23)
+  // openCount is column AB (col 27), firstOpenAt is column AC (col 28)
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: sheetId,
     requestBody: {
       valueInputOption: 'RAW',
       data: [
         {
-          range: `${a1Tab(sheetTab)}!W${rowIndex}`,
+          range: `${a1Tab(sheetTab)}!AB${rowIndex}`,
           values: [[newCount.toString()]],
         },
         ...(firstOpenAt && currentCount === 0
           ? [{
-              range: `${a1Tab(sheetTab)}!X${rowIndex}`,
+              range: `${a1Tab(sheetTab)}!AC${rowIndex}`,
               values: [[firstOpenAt]],
             }]
           : []),

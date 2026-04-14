@@ -113,36 +113,39 @@ export interface IndustryMetrics {
   replyRate: number;
 }
 
-// Google Sheets column mapping — matches actual sheet layout (verified 2026-04-14)
-// Data zone: A–Q (cols 0–16) | Tracking zone: R–AA (cols 17–26)
+// Google Sheets column mapping — Master Table tab of sales_pipe_master
+// Data zone: A–V (cols 0–21) | Tracking zone: W–AE (cols 22–30)
 export const SHEET_COLUMNS = {
-  industry: 0,         // A
-  subIndustry: 1,      // B
-  company: 2,          // C
-  website: 3,          // D
-  contactName: 4,      // E
-  role: 5,             // F
-  linkedIn: 6,         // G
-  email: 7,            // H
-  country: 8,          // I
-  region: 9,           // J
-  estRevenue: 10,      // K
-  estEmployees: 11,    // L
-  competitors: 12,     // M — "Competitors Already Live"
-  competitorsLive: 12, // M — alias
-  techDNA: 13,         // N
-  aiInitiatives: 14,   // O
-  urgencyScore: 15,    // P
-  outreachAngle: 16,   // Q
-  // Tracking zone
-  status: 17,          // R
-  assignedTo: 18,      // S
-  sentAt: 19,          // T
-  messageId: 20,       // U
-  threadId: 21,        // V
-  openCount: 22,       // W
-  firstOpenAt: 23,     // X
-  repliedAt: 24,       // Y
-  bounceReason: 25,    // Z
-  language: 26,        // AA
+  industry: 0,          // A
+  subIndustry: 1,       // B
+  company: 2,           // C
+  website: 3,           // D
+  contactName: 4,       // E
+  role: 5,              // F
+  linkedIn: 6,          // G
+  email: 7,             // H
+  profileGroup: 8,      // I — A/B/C profile tier
+  country: 9,           // J
+  region: 10,           // K
+  estRevenue: 11,       // L
+  estEmployees: 12,     // M
+  competitorsLive: 13,  // N — "Competitors Already Live"
+  techDNA: 14,          // O
+  aiInitiatives: 15,    // P
+  urgencyScore: 16,     // Q
+  outreachAngle: 17,    // R
+  competitors: 18,      // S — "Top 2 Competitors"
+  emailSubject: 19,     // T — pre-filled subject
+  emailBody: 20,        // U — pre-filled body HTML
+  weekAdded: 21,        // V
+  // Tracking zone (W–AE, cols 22–30)
+  status: 22,           // W
+  assignedTo: 23,       // X
+  sentAt: 24,           // Y
+  messageId: 25,        // Z
+  threadId: 26,         // AA
+  openCount: 27,        // AB
+  firstOpenAt: 28,      // AC
+  repliedAt: 29,        // AD
+  bounceReason: 30,     // AE
 } as const;

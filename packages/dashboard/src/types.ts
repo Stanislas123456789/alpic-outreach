@@ -60,13 +60,14 @@ export interface IndustryMetrics {
   replyRate: number;
 }
 
-// Matches actual sheet layout (verified 2026-04-14)
+// Master Table tab of sales_pipe_master sheet
 export const SHEET_COLUMNS = {
   industry: 0, subIndustry: 1, company: 2, website: 3, contactName: 4,
-  role: 5, linkedIn: 6, email: 7, country: 8, region: 9,
-  estRevenue: 10, estEmployees: 11, competitors: 12, competitorsLive: 12,
-  techDNA: 13, aiInitiatives: 14, urgencyScore: 15, outreachAngle: 16,
-  status: 17, assignedTo: 18, sentAt: 19, messageId: 20,
-  threadId: 21, openCount: 22, firstOpenAt: 23, repliedAt: 24,
-  bounceReason: 25, language: 26,
+  role: 5, linkedIn: 6, email: 7, profileGroup: 8, country: 9, region: 10,
+  estRevenue: 11, estEmployees: 12, competitorsLive: 13, techDNA: 14,
+  aiInitiatives: 15, urgencyScore: 16, outreachAngle: 17,
+  competitors: 18, emailSubject: 19, emailBody: 20, weekAdded: 21,
+  status: 22, assignedTo: 23, sentAt: 24, messageId: 25,
+  threadId: 26, openCount: 27, firstOpenAt: 28, repliedAt: 29,
+  bounceReason: 30,
 } as const;
