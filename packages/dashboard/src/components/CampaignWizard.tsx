@@ -91,7 +91,13 @@ const SPEED_OPTIONS: { id: SpeedMode; label: string; desc: string; color: string
 
 function parseWeekAdded(weekAdded?: string): Date | null {
   if (!weekAdded) return null;
-  // Try direct Date parse first (ISO, "Apr 7 2026", etc.)
+  // Try DD-MM-YYYY or DD/MM/YYYY (sheet format: "30-03-2026")
+  const dmy = weekAdded.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (dmy) {
+    const d = new Date(parseInt(dmy[3]), parseInt(dmy[2]) - 1, parseInt(dmy[1]));
+    if (!isNaN(d.getTime())) return d;
+  }
+  // Try direct Date parse (ISO "2026-04-12", "Apr 7 2026", etc.)
   const d = new Date(weekAdded);
   if (!isNaN(d.getTime())) return d;
   // Try "W{n}" or "2026-W{n}" ISO week format
@@ -99,7 +105,6 @@ function parseWeekAdded(weekAdded?: string): Date | null {
   if (weekMatch) {
     const year = weekMatch[1] ? parseInt(weekMatch[1]) : new Date().getFullYear();
     const week = parseInt(weekMatch[2]);
-    // Jan 4 is always in week 1; compute the Monday of that week
     const jan4 = new Date(year, 0, 4);
     const day1 = jan4.getDate() - (jan4.getDay() || 7) + 1;
     return new Date(year, 0, day1 + (week - 1) * 7);
@@ -167,7 +172,7 @@ export default function CampaignWizard({
     const cutoff = new Date(dateFrom);
     return allContacts.filter(c => {
       const d = parseWeekAdded(c.weekAdded);
-      if (!d) return true; // keep if can't parse
+      if (!d) return false; // exclude if date unparseable when filter is active
       return d >= cutoff;
     });
   }, [allContacts, dateFrom]);
