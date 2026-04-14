@@ -393,6 +393,51 @@ router.get('/auth-debug', (_req: Request, res: Response) => {
   });
 });
 
+// GET /api/pipeline/sheet-headers — returns actual column headers from the sheet
+// so you can verify SHEET_COLUMNS indices match the real layout.
+router.get('/sheet-headers', async (req: Request, res: Response) => {
+  try {
+    const { getSheetHeaders } = await import('../../../../pipeline/src/sheets');
+    const sheetId  = req.query.sheetId  as string | undefined;
+    const sheetTab = req.query.sheetTab as string | undefined;
+    const headers = await getSheetHeaders(sheetId, sheetTab);
+    res.json({ ok: true, headers });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/pipeline/run-tracker — manually trigger reply + bounce checks
+// for all unique campaign sheets. Pass lookbackDays (default 30) to override
+// the bounce search window (useful for checking old campaigns retroactively).
+router.post('/run-tracker', async (req: Request, res: Response) => {
+  try {
+    const { checkReplies, checkBounces } = await import('../../../../pipeline/src/tracker');
+    const lookbackDays: number = parseInt(req.body?.lookbackDays) || 30;
+    const sheetTargets = getUniqueCampaignSheets();
+
+    // If no campaigns recorded yet, fall back to the default configured sheet
+    const targets = sheetTargets.length > 0
+      ? sheetTargets
+      : [{ sheetId: undefined as any, sheetTab: undefined as any }];
+
+    const results: Record<string, string> = {};
+    for (const { sheetId, sheetTab } of targets) {
+      const key = `${sheetId || 'default'}/${sheetTab || 'default'}`;
+      try {
+        await checkReplies(sheetId, sheetTab);
+        await checkBounces(sheetId, sheetTab, lookbackDays);
+        results[key] = 'ok';
+      } catch (err: any) {
+        results[key] = `error: ${err.message}`;
+      }
+    }
+    res.json({ ok: true, lookbackDays, results });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // POST /api/pipeline/clean-legacy — one-shot: clear garbage sentAt/messageId
 // values from columns T & U (old schema artifacts). Safe to call multiple times.
 router.post('/clean-legacy', async (req: Request, res: Response) => {

@@ -82,8 +82,9 @@ export async function checkReplies(
 export async function checkBounces(
   sheetId?: string,
   sheetTab?: string,
+  lookbackDays = 7,
 ): Promise<void> {
-  console.log('🔍 Checking for bounces...');
+  console.log(`🔍 Checking for bounces (last ${lookbackDays}d)...`);
   const senders = getSenders();
   let bouncesFound = 0;
 
@@ -96,12 +97,11 @@ export async function checkBounces(
       auth.setCredentials({ refresh_token: sender.refreshToken });
       const gmail = google.gmail({ version: 'v1', auth });
 
-      // Search for bounce notifications — extend window to 7 days to catch
-      // delayed bounces (e.g. out-of-office loops, greylisting rejections)
+      // Search for bounce notifications — lookbackDays controls how far back to search
       const res = await gmail.users.messages.list({
         userId: 'me',
-        q: 'subject:(delivery status notification OR undeliverable OR "mail delivery failed" OR "message not delivered") newer_than:7d',
-        maxResults: 100,
+        q: `subject:(delivery status notification OR undeliverable OR "mail delivery failed" OR "message not delivered") newer_than:${lookbackDays}d`,
+        maxResults: 200,
       });
 
       const messages = res.data.messages || [];

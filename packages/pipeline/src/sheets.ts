@@ -363,3 +363,34 @@ export async function clearLegacyTrackingGarbage(
   console.log(`✅ Cleared legacy tracking data from ${clearedRows} rows (T/U columns)`);
   return clearedRows;
 }
+
+// ─── Read sheet header row ────────────────────────────────────────────────────
+// Returns the first row of the sheet as an array of { col, letter, header }
+// so we can verify that SHEET_COLUMNS indices match the actual sheet layout.
+export async function getSheetHeaders(
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<{ index: number; letter: string; header: string }[]> {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${a1Tab(sheetTab)}!A1:AZ1`,
+  });
+  const row: string[] = (res.data.values?.[0] as string[]) || [];
+  return row.map((header, index) => ({
+    index,
+    letter: indexToCol(index),
+    header: header || '',
+  }));
+}
+
+function indexToCol(n: number): string {
+  let s = '';
+  n += 1; // 1-indexed
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
