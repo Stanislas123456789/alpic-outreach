@@ -360,6 +360,75 @@ export async function clearLegacyTrackingGarbage(
   return clearedRows;
 }
 
+// ─── Migrate tracking columns from wrong positions to correct ones ────────────
+// The pipeline previously used a wrong schema where tracking started at col W (22)
+// instead of the correct R (17). This migrates rows that have status in W but
+// not in R by shifting all tracking data 5 columns left (W→R, X→S, Y→T …).
+export async function migrateTrackingColumns(
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<{ migrated: number; skipped: number }> {
+  const sheets = getSheetsClient();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${a1Tab(sheetTab)}!A2:AE`,
+  });
+
+  const rows = (res.data.values || []) as string[][];
+  const STATUS_SET = new Set(['sent','bounced','opened','replied','sending','invalid','skipped','yes','oui']);
+
+  const data: { range: string; values: string[][] }[] = [];
+  let migrated = 0;
+  let skipped = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+    const correctStatus = (row[17] || '').toLowerCase().trim(); // R — should have status
+    const wrongStatus   = (row[22] || '').toLowerCase().trim(); // W — where wrong schema wrote it
+
+    if (!correctStatus && STATUS_SET.has(wrongStatus)) {
+      // Wrong schema wrote: status→W(22), assignedTo→X(23), sentAt→Y(24),
+      //   messageId→Z(25), threadId→AA(26), openCount→AB(27),
+      //   firstOpenAt→AC(28), repliedAt→AD(29), bounceReason→AE(30)
+      // Correct schema expects: R(17)…Z(25), clear AA(26)…AE(30)
+      const vals = [
+        row[22] || '', // R  ← status (was in W)
+        row[23] || '', // S  ← assignedTo (was in X)
+        row[24] || '', // T  ← sentAt (was in Y)
+        row[25] || '', // U  ← messageId (was in Z)
+        row[26] || '', // V  ← threadId (was in AA)
+        row[27] || '', // W  ← openCount (was in AB)
+        row[28] || '', // X  ← firstOpenAt (was in AC)
+        row[29] || '', // Y  ← repliedAt (was in AD)
+        row[30] || '', // Z  ← bounceReason (was in AE)
+        '',            // AA — clear (had threadId garbage)
+        '',            // AB — clear
+        '',            // AC — clear
+        '',            // AD — clear
+        '',            // AE — clear
+      ];
+      data.push({ range: `${a1Tab(sheetTab)}!R${rowNum}:AE${rowNum}`, values: [vals] });
+      migrated++;
+    } else {
+      skipped++;
+    }
+  }
+
+  // Batch in chunks of 500 to stay within API limits
+  const CHUNK = 500;
+  for (let i = 0; i < data.length; i += CHUNK) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: sheetId,
+      requestBody: { valueInputOption: 'RAW', data: data.slice(i, i + CHUNK) },
+    });
+  }
+
+  console.log(`✅ Migration done: ${migrated} rows migrated, ${skipped} skipped`);
+  return { migrated, skipped };
+}
+
 // ─── Read sheet header row ────────────────────────────────────────────────────
 // Returns the first row of the sheet as an array of { col, letter, header }
 // so we can verify that SHEET_COLUMNS indices match the actual sheet layout.

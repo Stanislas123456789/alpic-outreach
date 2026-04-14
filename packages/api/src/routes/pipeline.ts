@@ -442,6 +442,20 @@ router.post('/run-tracker', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/pipeline/migrate-tracking — one-shot: shift tracking data from wrong
+// columns (W–AE, old wrong schema) to correct columns (R–Z, actual sheet schema).
+router.post('/migrate-tracking', async (req: Request, res: Response) => {
+  try {
+    const { migrateTrackingColumns } = await import('../../../pipeline/src/sheets');
+    const sheetId  = (req.body?.sheetId  as string | undefined) || undefined;
+    const sheetTab = (req.body?.sheetTab as string | undefined) || undefined;
+    const result = await migrateTrackingColumns(sheetId, sheetTab);
+    res.json({ ok: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // POST /api/pipeline/clean-legacy — DISABLED (schema now correctly maps T/U to sentAt/messageId)
 router.post('/clean-legacy', (_req: Request, res: Response) => {
   res.json({ ok: false, error: 'clean-legacy is disabled — schema has been corrected, T/U contain valid tracking data.' });
