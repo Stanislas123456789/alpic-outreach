@@ -319,7 +319,6 @@ router.get('/preview', async (req: Request, res: Response) => {
     const { getPendingContacts, getSentContacts, setUserSheetsToken } = await import('../../../pipeline/src/sheets');
     const { buildSubject, buildBody } = await import('../../../pipeline/src/template');
 
-    // Inject user OAuth token so preview uses the same auth path as the pipeline
     const senders = readSenders().filter(s => !!s.refreshToken);
     setUserSheetsToken(senders[0]?.refreshToken ?? null);
 
