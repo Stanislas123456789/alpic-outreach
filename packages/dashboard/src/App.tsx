@@ -1042,6 +1042,7 @@ export default function App() {
               onRunPipeline={api.runPipeline}
               onRefresh={api.refresh}
               getConnectUrl={api.getConnectUrl}
+              disconnectSender={api.disconnectSender}
               fetchPreview={api.previewContacts}
               pollProgress={api.pollProgress}
               sources={sources}

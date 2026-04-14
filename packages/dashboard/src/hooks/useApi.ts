@@ -197,6 +197,14 @@ export function useApi(user: AuthUser | null) {
     return `${API_URL}/api/senders/auth?email=${encodeURIComponent(email)}`;
   }, []);
 
+  const disconnectSender = useCallback(async (email: string) => {
+    await fetch(`${API_URL}/api/senders/${encodeURIComponent(email)}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
+    fetchSenders();
+  }, [user?.email]);
+
   // Load on mount and when user changes
   useEffect(() => {
     if (user?.email?.endsWith('@alpic.ai')) {
@@ -216,6 +224,7 @@ export function useApi(user: AuthUser | null) {
     previewContacts,
     pollProgress,
     getConnectUrl,
+    disconnectSender,
     refresh: () => { fetchSenders(); fetchPipelineStatus(); },
   };
 }

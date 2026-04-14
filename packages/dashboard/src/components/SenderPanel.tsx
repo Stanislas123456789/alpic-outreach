@@ -16,6 +16,7 @@ interface Props {
   onRunPipeline: (opts?: { excludeIds?: string[]; sheetId?: string; tab?: string; emailOverrides?: Record<string, { subject: string; body: string }> }) => Promise<{ campaignId?: string }> | void;
   onRefresh: () => void;
   getConnectUrl: (email: string) => string;
+  disconnectSender: (email: string) => Promise<void>;
   fetchPreview: (sheetId?: string, tab?: string, limit?: number) => Promise<PreviewContact[]>;
   pollProgress: (campaignId?: string) => Promise<PipelineProgress>;
   sources: SheetSource[];
@@ -164,6 +165,7 @@ export default function SenderPanel({
   onRunPipeline,
   onRefresh,
   getConnectUrl,
+  disconnectSender,
   fetchPreview,
   pollProgress,
   sources,
@@ -362,10 +364,18 @@ export default function SenderPanel({
                 <div style={styles.senderName}>{user.name}</div>
                 <div style={styles.senderEmail}>{user.email}</div>
               </div>
-              {isConnected
-                ? <span style={styles.badgeGreen}>Connected</span>
-                : <a href={getConnectUrl(user.email)} style={styles.connectBtn}>Connect →</a>
-              }
+              {isConnected ? (
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                  <span style={styles.badgeGreen}>Connected</span>
+                  <button
+                    style={styles.disconnectBtn}
+                    onClick={() => disconnectSender(user.email)}
+                    title="Disconnect — you'll need to reconnect to send emails"
+                  >✕</button>
+                </div>
+              ) : (
+                <a href={getConnectUrl(user.email)} style={styles.connectBtn}>Connect →</a>
+              )}
             </div>
 
             {isConnected && userSender && (
@@ -792,6 +802,19 @@ const styles: Record<string, React.CSSProperties> = {
     textDecoration: 'none',
     marginLeft: 'auto',
     flexShrink: 0,
+  },
+  disconnectBtn: {
+    background: 'none',
+    border: '1px solid #f8717144',
+    borderRadius: 6,
+    color: '#f87171',
+    fontSize: 12,
+    fontWeight: 700,
+    padding: '2px 7px',
+    cursor: 'pointer',
+    lineHeight: 1,
+    flexShrink: 0,
+    fontFamily: "'DM Sans', sans-serif",
   },
   quotaRow: {
     display: 'flex',

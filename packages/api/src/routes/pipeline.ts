@@ -145,9 +145,13 @@ async function executeCampaign(
   try {
     const { runPipeline } = await import('../../../pipeline/src/index');
     const { setSenders, getSenders } = await import('../../../pipeline/src/gmail');
+    const { setUserSheetsToken } = await import('../../../pipeline/src/sheets');
 
     const senders = readSenders().filter(s => !!s.refreshToken);
     setSenders(senders.map(s => ({ ...s })));
+    // Inject the first sender's refresh token for Sheets auth (bypasses Workspace service account restrictions)
+    const sheetsToken = senders[0]?.refreshToken ?? null;
+    setUserSheetsToken(sheetsToken);
 
     await runPipeline({
       excludeIds,
@@ -459,6 +463,42 @@ router.post('/migrate-tracking', async (req: Request, res: Response) => {
 // POST /api/pipeline/clean-legacy — DISABLED (schema now correctly maps T/U to sentAt/messageId)
 router.post('/clean-legacy', (_req: Request, res: Response) => {
   res.json({ ok: false, error: 'clean-legacy is disabled — schema has been corrected, T/U contain valid tracking data.' });
+});
+
+// POST /api/pipeline/init-tracking-headers — write column headers for Y-AG if missing
+router.post('/init-tracking-headers', async (req: Request, res: Response) => {
+  try {
+    const { initTrackingHeaders } = await import('../../../pipeline/src/sheets');
+    const sheetId = (req.body?.sheetId as string) || undefined;
+    const sheetTab = (req.body?.sheetTab as string) || undefined;
+    const result = await initTrackingHeaders(sheetId, sheetTab);
+    res.json({ ok: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/pipeline/backfill-sent — scan Gmail sent folder, write threadId/messageId/sentAt back to sheet for "Contacted=Yes" rows
+router.post('/backfill-sent', async (req: Request, res: Response) => {
+  try {
+    const { backfillSentEmails } = await import('../../../pipeline/src/sheets');
+    const { setSenders } = await import('../../../pipeline/src/gmail');
+    const senders = readSenders().filter(s => !!s.refreshToken);
+    if (senders.length === 0) {
+      res.status(400).json({ ok: false, error: 'No connected senders with refresh tokens' });
+      return;
+    }
+    setSenders(senders.map(s => ({ ...s })));
+
+    const sheetId = (req.body?.sheetId as string) || undefined;
+    const sheetTab = (req.body?.sheetTab as string) || undefined;
+    const lookbackDays: number = parseInt(req.body?.lookbackDays) || 90;
+
+    const result = await backfillSentEmails(senders, lookbackDays, sheetId, sheetTab);
+    res.json({ ok: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 export default router;

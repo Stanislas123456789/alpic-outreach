@@ -82,7 +82,30 @@ function getAuth() {
 
 // ─── Sheets client ───────────────────────────────────────────────────────────
 
+/**
+ * Build a Sheets client using a user's OAuth2 refresh token.
+ * Used as fallback when the service account is blocked by Workspace org policy.
+ */
+function getSheetsClientFromUserToken(refreshToken: string) {
+  const CLIENT_ID = process.env.GMAIL_CLIENT_ID!;
+  const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET!;
+  const REDIRECT_URI = process.env.OAUTH_REDIRECT_URI || `http://localhost:${process.env.PORT || 4001}/api/senders/auth/callback`;
+  const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+  return google.sheets({ version: 'v4', auth: oauth2Client });
+}
+
+let _userRefreshToken: string | null = null;
+
+/** Called by the pipeline to inject a user refresh token as auth fallback */
+export function setUserSheetsToken(refreshToken: string | null) {
+  _userRefreshToken = refreshToken;
+}
+
 function getSheetsClient() {
+  if (_userRefreshToken) {
+    return getSheetsClientFromUserToken(_userRefreshToken);
+  }
   const auth = getAuth();
   return google.sheets({ version: 'v4', auth });
 }
@@ -462,4 +485,143 @@ function indexToCol(n: number): string {
     n = Math.floor((n - 1) / 26);
   }
   return s;
+}
+
+// ─── Init tracking headers ────────────────────────────────────────────────────
+
+export async function initTrackingHeaders(
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<{ message: string; headers?: string[] }> {
+  const sheets = getSheetsClient();
+  const tab = a1Tab(sheetTab);
+
+  const check = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${tab}!W1:AE1`,
+  });
+  const existing = (check.data.values?.[0] || []).filter(Boolean) as string[];
+  // Already has headers (7+ columns W-AE present)
+  if (existing.length >= 7) {
+    return { message: 'Headers already present', headers: existing };
+  }
+
+  // Write tracking headers starting at W (preserving existing Contacted/Owner if present)
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `${tab}!W1`,
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [['Status', 'Assigned To', 'Sent At', 'Message ID', 'Thread ID', 'Open Count', 'First Open At', 'Replied At', 'Bounce Reason']],
+    },
+  });
+  return { message: 'Tracking headers written to W-AE' };
+}
+
+// ─── Backfill sent emails from Gmail ─────────────────────────────────────────
+// Scans each sender's "Sent" folder in Gmail, matches emails to contacts in the
+// sheet by recipient address, and writes tracking data (status, sentAt, messageId,
+// threadId, repliedAt) into the Y-AG tracking columns.
+
+export async function backfillSentEmails(
+  senders: Array<{ email: string; refreshToken: string }>,
+  lookbackDays = 90,
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<{ scanned: number; updated: number }> {
+  const sheets = getSheetsClient();
+  const tab = a1Tab(sheetTab);
+
+  // Build email → rowIndex lookup from the sheet (column H = email, index 7)
+  const sheetData = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${tab}!A2:AG`,
+  });
+  const rows = sheetData.data.values || [];
+  const emailToRow: Record<string, { rowIndex: number; hasTracking: boolean }> = {};
+  rows.forEach((row, i) => {
+    const email = (row[SHEET_COLUMNS.email] || '').toString().trim().toLowerCase();
+    if (!email) return;
+    // AA = threadId = index 26; if set, this row already has tracking data
+    const hasTracking = !!(row[SHEET_COLUMNS.threadId]);
+    emailToRow[email] = { rowIndex: i + 2, hasTracking };
+  });
+
+  const { google } = await import('googleapis');
+  const CLIENT_ID = process.env.GMAIL_CLIENT_ID!;
+  const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET!;
+  const REDIRECT_URI = process.env.OAUTH_REDIRECT_URI || `http://localhost:${process.env.PORT || 4001}/api/senders/auth/callback`;
+
+  let updated = 0;
+  const updates: Array<{ range: string; values: any[][] }> = [];
+  const after = Math.floor((Date.now() - lookbackDays * 24 * 60 * 60 * 1000) / 1000);
+
+  for (const sender of senders) {
+    const gmailAuth = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+    gmailAuth.setCredentials({ refresh_token: sender.refreshToken });
+    const gmail = google.gmail({ version: 'v1', auth: gmailAuth });
+
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: `in:sent after:${after}`,
+      maxResults: 500,
+    });
+
+    const messages = listRes.data.messages || [];
+    console.log(`[backfill] ${sender.email}: ${messages.length} sent messages to check`);
+
+    for (const msg of messages) {
+      try {
+        const detail = await gmail.users.messages.get({
+          userId: 'me',
+          id: msg.id!,
+          format: 'metadata',
+          metadataHeaders: ['To', 'Date'],
+        });
+        const headers = detail.data.payload?.headers || [];
+        const toHeader = headers.find(h => h.name === 'To')?.value || '';
+        const dateHeader = headers.find(h => h.name === 'Date')?.value || '';
+        const toMatch = toHeader.match(/[\w.+\-]+@[\w.\-]+\.\w+/);
+        if (!toMatch) continue;
+        const toEmail = toMatch[0].toLowerCase();
+
+        const entry = emailToRow[toEmail];
+        if (!entry || entry.hasTracking) continue;
+
+        const sentAt = dateHeader ? new Date(dateHeader).toISOString() : '';
+        const threadId = detail.data.threadId || '';
+        const messageId = msg.id || '';
+
+        // Check if there's a reply in this thread
+        const thread = await gmail.users.threads.get({ userId: 'me', id: threadId });
+        const hasReply = (thread.data.messages || []).some(m => {
+          const from = m.payload?.headers?.find(h => h.name === 'From')?.value || '';
+          return !from.toLowerCase().includes(sender.email.toLowerCase());
+        });
+
+        const status = hasReply ? 'replied' : 'sent';
+        // Write to W-AE (cols 22-30): status, assignedTo, sentAt, messageId, threadId, openCount, firstOpenAt, repliedAt, bounceReason
+        updates.push({
+          range: `${tab}!W${entry.rowIndex}:AE${entry.rowIndex}`,
+          values: [[status, sender.email, sentAt, messageId, threadId, '', '', hasReply ? sentAt : '', '']],
+        });
+        entry.hasTracking = true; // mark as done so we don't double-write
+        updated++;
+      } catch {
+        // skip individual message errors silently
+      }
+    }
+  }
+
+  // Batch write in chunks of 500
+  const CHUNK = 500;
+  for (let i = 0; i < updates.length; i += CHUNK) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: sheetId,
+      requestBody: { valueInputOption: 'RAW', data: updates.slice(i, i + CHUNK) },
+    });
+  }
+
+  console.log(`[backfill] Done: ${updated} rows updated`);
+  return { scanned: Object.keys(emailToRow).length, updated };
 }

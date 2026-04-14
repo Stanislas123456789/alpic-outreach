@@ -11,6 +11,7 @@ const VALID_EMAIL_STATUSES = new Set(['pending', 'validating', 'invalid', 'sendi
 
 function normalizeStatus(raw: string): EmailStatus {
   const s = (raw || '').toLowerCase().trim();
+  if (s === 'yes' || s === 'oui') return 'sent'; // legacy "Contacted" column
   return VALID_EMAIL_STATUSES.has(s) ? s as EmailStatus : 'pending';
 }
 

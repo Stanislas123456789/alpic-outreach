@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { readSenders, upsertSender } from '../senders';
+import { readSenders, upsertSender, writeSenders } from '../senders';
 import { generateAuthUrl, exchangeCode, DASHBOARD_URL } from '../auth';
 
 const router = Router();
@@ -61,6 +61,32 @@ router.get('/auth/callback', async (req: Request, res: Response) => {
     console.error('[api] OAuth callback error:', err.message);
     res.redirect(`${DASHBOARD_URL}?tab=senders&error=${encodeURIComponent(err.message)}`);
   }
+});
+
+// POST /api/senders/seed — overwrite senders.json (used to restore tokens after redeploy)
+router.post('/seed', (req: Request, res: Response) => {
+  const senders = req.body;
+  if (!Array.isArray(senders)) {
+    res.status(400).json({ error: 'Body must be an array of senders' });
+    return;
+  }
+  writeSenders(senders);
+  res.json({ ok: true, count: senders.length });
+});
+
+// DELETE /api/senders/:email — disconnect a sender (clears refresh token)
+router.delete('/:email', (req: Request, res: Response) => {
+  const { email } = req.params;
+  const senders = readSenders();
+  const idx = senders.findIndex(s => s.email === email);
+  if (idx < 0) {
+    res.status(404).json({ error: 'Sender not found' });
+    return;
+  }
+  senders[idx] = { ...senders[idx], refreshToken: '' };
+  writeSenders(senders);
+  console.log(`[api] Sender disconnected: ${email}`);
+  res.json({ ok: true });
 });
 
 export default router;

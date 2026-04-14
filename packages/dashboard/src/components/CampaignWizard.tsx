@@ -169,7 +169,8 @@ export default function CampaignWizard({
   // Date-filtered contacts
   const dateFilteredContacts = useMemo(() => {
     if (!dateFrom) return allContacts;
-    const cutoff = new Date(dateFrom);
+    const [cy, cm, cd] = dateFrom.split('-').map(Number);
+    const cutoff = new Date(cy, cm - 1, cd); // local midnight, matches parseWeekAdded
     return allContacts.filter(c => {
       const d = parseWeekAdded(c.weekAdded);
       if (!d) return true; // no date info → include
