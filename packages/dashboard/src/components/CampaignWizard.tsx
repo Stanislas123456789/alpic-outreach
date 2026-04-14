@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { PreviewContact, PipelineProgress } from '../hooks/useApi';
 import type { SheetSource } from '../hooks/useConfig';
 import type { AuthUser } from '../hooks/useAuth';
@@ -153,6 +153,17 @@ export default function CampaignWizard({
   const [activeCampaignId, setActiveCampaignId] = useState<string | undefined>();
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+
+  // Auto-sync maxEmails to full audience size whenever the audience changes.
+  // This prevents a stale cap from silently truncating the review list when
+  // the user adjusts the date/industry filter or opens a new wizard session.
+  const prevAudienceLen = useRef(0);
+  useEffect(() => {
+    if (audienceContacts.length > 0 && audienceContacts.length !== prevAudienceLen.current) {
+      setMaxEmails(audienceContacts.length);
+      prevAudienceLen.current = audienceContacts.length;
+    }
+  }, [audienceContacts.length]);
 
   // ── Derived data ────────────────────────────────────────────────────────────
 

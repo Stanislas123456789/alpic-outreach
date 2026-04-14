@@ -132,6 +132,11 @@ export async function getPendingContacts(
     const rawStatus = (row[SHEET_COLUMNS.status] || '').toString().toLowerCase().trim();
     const DONE_STATUSES = new Set(['sent', 'bounced', 'opened', 'replied', 'skipped', 'invalid', 'sending', 'yes', 'oui']);
     if (DONE_STATUSES.has(rawStatus)) continue;
+    // Also skip contacts that have tracking data written (sentAt or threadId set)
+    // but whose status column was never updated — prevents double-sending.
+    const sentAt = (row[SHEET_COLUMNS.sentAt] || '').toString().trim();
+    const threadId = (row[SHEET_COLUMNS.threadId] || '').toString().trim();
+    if (sentAt || threadId) continue;
     const status = (rawStatus === 'pending' || rawStatus === '' ? 'pending' : 'pending') as EmailStatus;
 
     const email = row[SHEET_COLUMNS.email]?.trim();
