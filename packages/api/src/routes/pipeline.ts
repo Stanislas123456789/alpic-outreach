@@ -393,4 +393,18 @@ router.get('/auth-debug', (_req: Request, res: Response) => {
   });
 });
 
+// POST /api/pipeline/clean-legacy — one-shot: clear garbage sentAt/messageId
+// values from columns T & U (old schema artifacts). Safe to call multiple times.
+router.post('/clean-legacy', async (req: Request, res: Response) => {
+  try {
+    const { clearLegacyTrackingGarbage } = await import('../../../../pipeline/src/sheets');
+    const sheetId  = (req.body?.sheetId  as string | undefined) || undefined;
+    const sheetTab = (req.body?.sheetTab as string | undefined) || undefined;
+    const cleared = await clearLegacyTrackingGarbage(sheetId, sheetTab);
+    res.json({ ok: true, clearedRows: cleared });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 export default router;

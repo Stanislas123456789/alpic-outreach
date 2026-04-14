@@ -315,3 +315,51 @@ export async function ensureTrackingHeaders(): Promise<void> {
 
   console.log('✅ Tracking headers ensured in sheet');
 }
+
+// ─── Clear legacy tracking data from emailSubject/emailBody columns ──────────
+// Older schema stored sentAt (col T) and messageId (col U) where emailSubject
+// and emailBody now live. This wipes those cells for rows where the value looks
+// like a timestamp or hex ID so they fall back to the generated template.
+export async function clearLegacyTrackingGarbage(
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<number> {
+  const sheets = getSheetsClient();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${a1Tab(sheetTab)}!A2:U`,
+  });
+
+  const rows = res.data.values || [];
+  const isGarbage = (s?: string) =>
+    !!s && (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) || /^[0-9a-f]{8,24}$/.test(s));
+
+  const data: { range: string; values: string[][] }[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const subjectVal = row[19] as string | undefined; // col T
+    const bodyVal    = row[20] as string | undefined; // col U
+    const rowNum = i + 2; // 1-indexed, skip header
+    if (isGarbage(subjectVal)) {
+      data.push({ range: `${a1Tab(sheetTab)}!T${rowNum}`, values: [['']] });
+    }
+    if (isGarbage(bodyVal)) {
+      data.push({ range: `${a1Tab(sheetTab)}!U${rowNum}`, values: [['']] });
+    }
+  }
+
+  if (data.length === 0) {
+    console.log('✅ No legacy garbage found in T/U columns');
+    return 0;
+  }
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId,
+    requestBody: { valueInputOption: 'RAW', data },
+  });
+
+  const clearedRows = Math.ceil(data.length / 2);
+  console.log(`✅ Cleared legacy tracking data from ${clearedRows} rows (T/U columns)`);
+  return clearedRows;
+}

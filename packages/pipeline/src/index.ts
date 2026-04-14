@@ -120,9 +120,16 @@ async function processContact(
   contact.assignedTo = sender.email;
 
   // 4. Build email (priority: manual override > pre-filled from sheet > template)
+  // Guard: reject emailSubject/emailBody that look like old tracking data (ISO timestamps
+  // or short hex IDs) — these come from schema migration where sentAt/messageId used to
+  // live in columns T/U before emailSubject/emailBody were added there.
+  const isTrackingGarbage = (s?: string) =>
+    !s || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) || /^[0-9a-f]{8,24}$/.test(s);
   const override = emailOverrides[contact.id];
-  const subject = (override?.subject ?? contact.emailSubject) || buildSubject(contact);
-  const body = (override?.body ?? contact.emailBody) || buildBody(contact);
+  const preSubject = override?.subject ?? (isTrackingGarbage(contact.emailSubject) ? undefined : contact.emailSubject);
+  const preBody   = override?.body   ?? (isTrackingGarbage(contact.emailBody)    ? undefined : contact.emailBody);
+  const subject = preSubject || buildSubject(contact);
+  const body    = preBody    || buildBody(contact);
 
   // 5. Dry run preview
   if (DRY_RUN) {
