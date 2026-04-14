@@ -29,6 +29,7 @@ export interface PreviewContact {
   weekAdded?: string;
   subject: string;
   body: string;
+  alreadySent?: boolean;
 }
 
 export interface ProgressEvent {
@@ -106,10 +107,11 @@ export function useApi(user: AuthUser | null) {
     }
   }, [user?.email]);
 
-  const previewContacts = useCallback(async (sheetId?: string, tab?: string, limit = 10) => {
+  const previewContacts = useCallback(async (sheetId?: string, tab?: string, limit = 10, includeSent = false) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (sheetId) params.set('sheetId', sheetId);
     if (tab) params.set('tab', tab);
+    if (includeSent) params.set('includeSent', 'true');
     const res = await fetch(`${API_URL}/api/pipeline/preview?${params}`, { headers: authHeaders });
     if (!res.ok) {
       const data = await res.json();

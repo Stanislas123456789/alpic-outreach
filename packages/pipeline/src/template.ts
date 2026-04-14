@@ -3,7 +3,7 @@
 // ============================================
 import { Contact, Language } from './types';
 
-const TRACKING_BASE = process.env.TRACKING_BASE_URL || 'https://track.alpic.ai';
+const TRACKING_BASE = (process.env.TRACKING_BASE_URL || 'https://track.alpic.ai').replace(/\/$/, '');
 const OPENAI_DOC_URL = 'https://developers.openai.com/apps-sdk/deploy';
 
 // ─── Parse competitors string into array ─────────────────────────────────────
@@ -48,7 +48,9 @@ export function buildSubject(contact: Contact): string {
 export function buildBody(contact: Contact): string {
   const comps = parseCompetitors(contact.competitors);
   const compStr = formatCompetitors(comps, contact.language);
-  const trackingPixel = `${TRACKING_BASE}/pixel/${encodeURIComponent(contact.id)}?row=${contact.rowIndex}`;
+  const sheetId = process.env.GOOGLE_SHEET_ID || '';
+  const sheetTab = process.env.GOOGLE_SHEET_TAB || 'Master Table';
+  const trackingPixel = `${TRACKING_BASE}/pixel/${encodeURIComponent(contact.id)}?row=${contact.rowIndex}&sheetId=${encodeURIComponent(sheetId)}&tab=${encodeURIComponent(sheetTab)}`;
   const appWord = comps.length === 1 ? 'app' : 'apps';
 
   if (contact.language === 'FR') {

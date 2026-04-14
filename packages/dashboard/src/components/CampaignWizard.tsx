@@ -6,7 +6,7 @@ import SendLiveView from './SendLiveView';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type WizardStep = 'sheet' | 'audience' | 'configure' | 'review' | 'live';
+type WizardStep = 'sheet' | 'audience' | 'configure' | 'template' | 'review' | 'live';
 type SpeedMode = 'slow' | 'normal' | 'fast';
 
 interface LaunchOpts {
@@ -25,7 +25,7 @@ interface Props {
   activeSheetId?: string;
   activeSheetTab?: string;
   onManageSources: () => void;
-  fetchPreview: (sheetId?: string, tab?: string, limit?: number) => Promise<PreviewContact[]>;
+  fetchPreview: (sheetId?: string, tab?: string, limit?: number, includeSent?: boolean) => Promise<PreviewContact[]>;
   onLaunch: (opts: LaunchOpts) => Promise<{ campaignId?: string }>;
   pollProgress: (campaignId?: string) => Promise<PipelineProgress>;
   onClose: () => void;
@@ -37,6 +37,7 @@ const STEPS: { id: WizardStep; label: string }[] = [
   { id: 'sheet', label: 'Sheet' },
   { id: 'audience', label: 'Audience' },
   { id: 'configure', label: 'Configure' },
+  { id: 'template', label: 'Template' },
   { id: 'review', label: 'Review' },
   { id: 'live', label: 'Live' },
 ];
@@ -154,12 +155,31 @@ export default function CampaignWizard({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedIndustries, setSelectedIndustries] = useState<Set<string>>(new Set());
   const [dateFrom, setDateFrom] = useState<string>(''); // ISO date string "YYYY-MM-DD"
+  const [excludeAlreadySent, setExcludeAlreadySent] = useState(true);
 
   // Step 3
   const [maxEmails, setMaxEmails] = useState(20);
   const [maxPerCompany, setMaxPerCompany] = useState(2);
   const [speedMode, setSpeedMode] = useState<SpeedMode>('normal');
   const [draftMode, setDraftMode] = useState(false);
+
+  // Step 3.5 — Template editor
+  const [tplSenderName, setTplSenderName] = useState('Stanislas Michel');
+  const [tplClosingEn, setTplClosingEn] = useState('Best');
+  const [tplClosingFr, setTplClosingFr] = useState('Cordialement');
+  const [tplHookEn, setTplHookEn] = useState(
+    "{competitors} just launched their ChatGPT {appWord}. Their services are now integrated and natively accessible to 900M+ ChatGPT users. This market is live since January 2026 and we think it could be a great opportunity for {company}. Is it something you're looking at?"
+  );
+  const [tplHookFr, setTplHookFr] = useState(
+    "{competitors} viennent de lancer leurs {appWord} ChatGPT. Leurs services sont désormais intégrés et nativement accessibles à plus de 900M d'utilisateurs ChatGPT. Ce marché est actif depuis janvier 2026 et nous pensons que c'est une réelle opportunité pour {company}. C'est quelque chose que vous regardez\u00a0?"
+  );
+  const [tplCtaEn, setTplCtaEn] = useState(
+    'Alpic is currently the first app developer in the world and the reference solution in the <a href="https://developers.openai.com/apps-sdk/deploy">OpenAI documentation</a>. Would be happy to give you more insights and explore relevance for {company} in a quick 15-minute talk.'
+  );
+  const [tplCtaFr, setTplCtaFr] = useState(
+    "Alpic est actuellement le premier développeur d'apps au monde et la solution de référence dans la <a href=\"https://developers.openai.com/apps-sdk/deploy\">documentation OpenAI</a>. Je serais ravi de vous donner plus de détails et d'explorer la pertinence pour {company} en 15 minutes."
+  );
+  const [tplPreviewLang, setTplPreviewLang] = useState<'EN' | 'FR'>('EN');
 
   // Step 4
   const [emailOverrides, setEmailOverrides] = useState<Record<string, { subject: string; body: string }>>({});
@@ -171,17 +191,6 @@ export default function CampaignWizard({
   const [activeCampaignId, setActiveCampaignId] = useState<string | undefined>();
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
-
-  // Auto-sync maxEmails to full audience size whenever the audience changes.
-  // This prevents a stale cap from silently truncating the review list when
-  // the user adjusts the date/industry filter or opens a new wizard session.
-  const prevAudienceLen = useRef(0);
-  useEffect(() => {
-    if (audienceContacts.length > 0 && audienceContacts.length !== prevAudienceLen.current) {
-      setMaxEmails(audienceContacts.length);
-      prevAudienceLen.current = audienceContacts.length;
-    }
-  }, [audienceContacts.length]);
 
   // ── Derived data ────────────────────────────────────────────────────────────
 
@@ -195,23 +204,37 @@ export default function CampaignWizard({
       .map(([industry, count]) => ({ industry, count }));
   }, [allContacts]);
 
-  // Date-filtered contacts
+  // Counts for dedup badge
+  const alreadySentCount = useMemo(() => allContacts.filter(c => c.alreadySent).length, [allContacts]);
+  const pendingOnly = useMemo(() => allContacts.filter(c => !c.alreadySent), [allContacts]);
+
+  // Date-filtered contacts (always exclude already-sent unless toggle is off)
   const dateFilteredContacts = useMemo(() => {
-    if (!dateFrom) return allContacts;
+    const base = excludeAlreadySent ? pendingOnly : allContacts;
+    if (!dateFrom) return base;
     const [cy, cm, cd] = dateFrom.split('-').map(Number);
-    const cutoff = new Date(cy, cm - 1, cd); // local midnight, matches parseWeekAdded
-    return allContacts.filter(c => {
+    const cutoff = new Date(cy, cm - 1, cd);
+    return base.filter(c => {
       const d = parseWeekAdded(c.weekAdded);
-      if (!d) return true; // no date info → include
+      if (!d) return true;
       return d >= cutoff;
     });
-  }, [allContacts, dateFrom]);
+  }, [allContacts, pendingOnly, dateFrom, excludeAlreadySent]);
 
   // Contacts passing industry + date filter
   const audienceContacts = useMemo(() => {
     if (selectedIndustries.size === 0) return dateFilteredContacts;
     return dateFilteredContacts.filter(c => selectedIndustries.has(c.industry));
   }, [dateFilteredContacts, selectedIndustries]);
+
+  // Auto-sync maxEmails to full audience size whenever the audience changes.
+  const prevAudienceLen = useRef(0);
+  useEffect(() => {
+    if (audienceContacts.length > 0 && audienceContacts.length !== prevAudienceLen.current) {
+      setMaxEmails(audienceContacts.length);
+      prevAudienceLen.current = audienceContacts.length;
+    }
+  }, [audienceContacts.length]);
 
   // After capping per-company and total
   const finalContacts = useMemo(() => {
@@ -249,11 +272,11 @@ export default function CampaignWizard({
     setLoadingContacts(true);
     setFetchError(null);
     try {
-      // Fetch 200 to give good filtering range
-      const data = await fetchPreview(pickedSheetId || undefined, pickedSheetTab || undefined, 200);
+      // Fetch pending + already-sent contacts so we can show the dedup count
+      const data = await fetchPreview(pickedSheetId || undefined, pickedSheetTab || undefined, 500, true);
       setAllContacts(data);
-      // Select all industries by default
-      const inds = new Set(data.map(c => c.industry).filter(Boolean));
+      // Select all industries by default (only from pending contacts)
+      const inds = new Set(data.filter(c => !c.alreadySent).map(c => c.industry).filter(Boolean));
       setSelectedIndustries(inds);
     } catch (err: any) {
       setFetchError(err.message);
@@ -261,6 +284,53 @@ export default function CampaignWizard({
       setLoadingContacts(false);
     }
   }
+
+  // ── Template helpers ────────────────────────────────────────────────────────
+
+  function buildTplBody(c: PreviewContact): string {
+    const lang = (c.language || 'EN').toUpperCase() as 'EN' | 'FR';
+    const isFr = lang === 'FR';
+    const comps = c.competitors || 'Your competitors';
+    const compCount = comps.split(/[,/]/).filter(Boolean).length;
+    const appWord = isFr ? (compCount === 1 ? 'app' : 'apps') : (compCount === 1 ? 'app' : 'apps');
+    const fill = (s: string) =>
+      s.replace(/{competitors}/g, comps)
+       .replace(/{company}/g, c.company || 'your company')
+       .replace(/{appWord}/g, appWord);
+
+    const hook = fill(isFr ? tplHookFr : tplHookEn);
+    const cta  = fill(isFr ? tplCtaFr  : tplCtaEn);
+    const closing = isFr ? tplClosingFr : tplClosingEn;
+    const greeting = isFr ? `Bonjour ${c.firstName},` : `Hi ${c.firstName},`;
+
+    return `<p>${greeting}</p>\n\n<p>${hook}</p>\n\n<p>${cta}</p>\n\n<p>${closing},<br>${tplSenderName}</p>`;
+  }
+
+  // Apply template to all final contacts before entering Review
+  function applyTemplateAndGoToReview() {
+    const overrides: Record<string, { subject: string; body: string }> = { ...emailOverrides };
+    for (const c of finalContacts) {
+      if (!overrides[c.id]) {
+        overrides[c.id] = { subject: c.subject, body: buildTplBody(c) };
+      } else {
+        // Re-apply template body but keep any subject override
+        overrides[c.id] = { subject: overrides[c.id].subject, body: buildTplBody(c) };
+      }
+    }
+    setEmailOverrides(overrides);
+    setStep('review');
+  }
+
+  // Preview for template step — first contact or dummy
+  const tplPreviewContact: PreviewContact = finalContacts.find(c =>
+    (c.language || 'EN').toUpperCase() === tplPreviewLang
+  ) || finalContacts[0] || {
+    id: '__preview__', rowIndex: 0,
+    firstName: 'John', lastName: 'Doe', email: 'john@example.com',
+    company: 'Acme Corp', industry: 'Travel', country: '', role: '',
+    language: tplPreviewLang, competitors: 'Competitor A, Competitor B',
+    competitorsLive: '', subject: '', body: '',
+  };
 
   // ── Navigation ──────────────────────────────────────────────────────────────
 
@@ -325,6 +395,7 @@ export default function CampaignWizard({
               {step === 'sheet' && 'Select the sheet to pull contacts from'}
               {step === 'audience' && 'Choose which industries and contacts to include'}
               {step === 'configure' && 'Set send speed, volume, and options'}
+              {step === 'template' && 'Edit the email template — changes apply to all contacts'}
               {step === 'review' && 'Review contacts and edit emails before sending'}
               {step === 'live' && (draftMode ? 'Drafts are being created in Gmail' : 'Campaign is running — watch emails go out live')}
             </p>
@@ -422,6 +493,38 @@ export default function CampaignWizard({
                   </div>
                 ) : (
                   <>
+                    {/* Dedup toggle */}
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      background: excludeAlreadySent ? '#34d39911' : '#f8717111',
+                      border: `1px solid ${excludeAlreadySent ? '#34d39944' : '#f8717144'}`,
+                      borderRadius: 10, padding: '10px 14px', marginBottom: 20,
+                    }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1 }}>
+                        <input
+                          type="checkbox"
+                          checked={excludeAlreadySent}
+                          onChange={e => setExcludeAlreadySent(e.target.checked)}
+                          style={{ width: 16, height: 16, accentColor: '#34d399', cursor: 'pointer' }}
+                        />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: excludeAlreadySent ? '#34d399' : '#f87171' }}>
+                          {excludeAlreadySent ? '✓ Skip already contacted' : '⚠ Including already contacted'}
+                        </span>
+                      </label>
+                      {alreadySentCount > 0 && (
+                        <span style={{
+                          background: excludeAlreadySent ? '#34d39922' : '#f8717122',
+                          color: excludeAlreadySent ? '#34d399' : '#f87171',
+                          borderRadius: 6, padding: '2px 8px', fontSize: 12, fontWeight: 700,
+                        }}>
+                          {alreadySentCount} already sent
+                        </span>
+                      )}
+                      {alreadySentCount === 0 && (
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>No duplicates found</span>
+                      )}
+                    </div>
+
                     {/* Date filter */}
                     <div style={{ marginBottom: 24 }}>
                       <div style={S.sectionLabel}>Filter by date added</div>
@@ -649,9 +752,125 @@ export default function CampaignWizard({
                 <button
                   style={{ ...S.btnPrimary, opacity: finalContacts.length === 0 ? 0.4 : 1 }}
                   disabled={finalContacts.length === 0}
-                  onClick={() => setStep('review')}
+                  onClick={() => setStep('template')}
                 >
-                  Review {finalContacts.length} emails →
+                  Edit Template →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 3.5: Template editor ─────────────────────────── */}
+          {step === 'template' && (
+            <div style={S.stepWrap}>
+              <div style={{ ...S.stepContent, display: 'flex', gap: 0, padding: 0, flexDirection: 'row' as const, overflow: 'hidden' }}>
+                {/* Left: fields */}
+                <div style={{ flex: 1, padding: 24, overflowY: 'auto' as const, borderRight: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 20 }}>
+
+                    {/* Sender name */}
+                    <div>
+                      <div style={S.sectionLabel}>Sender name (sign-off)</div>
+                      <input
+                        value={tplSenderName}
+                        onChange={e => setTplSenderName(e.target.value)}
+                        style={S.editInput}
+                        placeholder="Stanislas Michel"
+                      />
+                    </div>
+
+                    {/* Closing */}
+                    <div>
+                      <div style={S.sectionLabel}>Closing</div>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>English</div>
+                          <input value={tplClosingEn} onChange={e => setTplClosingEn(e.target.value)} style={S.editInput} placeholder="Best" />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>French</div>
+                          <input value={tplClosingFr} onChange={e => setTplClosingFr(e.target.value)} style={S.editInput} placeholder="Cordialement" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Hook paragraph */}
+                    <div>
+                      <div style={S.sectionLabel}>Hook paragraph</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                        Variables: <code style={{ background: 'var(--bg)', padding: '1px 5px', borderRadius: 3 }}>{'{competitors}'}</code>{' '}
+                        <code style={{ background: 'var(--bg)', padding: '1px 5px', borderRadius: 3 }}>{'{company}'}</code>{' '}
+                        <code style={{ background: 'var(--bg)', padding: '1px 5px', borderRadius: 3 }}>{'{appWord}'}</code>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>English</div>
+                          <textarea value={tplHookEn} onChange={e => setTplHookEn(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>French</div>
+                          <textarea value={tplHookFr} onChange={e => setTplHookFr(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* CTA paragraph */}
+                    <div>
+                      <div style={S.sectionLabel}>CTA / closing pitch</div>
+                      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>English</div>
+                          <textarea value={tplCtaEn} onChange={e => setTplCtaEn(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>French</div>
+                          <textarea value={tplCtaFr} onChange={e => setTplCtaFr(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Right: live preview */}
+                <div style={{ width: 320, flexShrink: 0, padding: 20, overflowY: 'auto' as const, background: 'var(--bg)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' as const, letterSpacing: '0.07em' }}>Live preview</div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {(['EN', 'FR'] as const).map(lang => (
+                        <button key={lang} onClick={() => setTplPreviewLang(lang)} style={{
+                          padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 4, cursor: 'pointer',
+                          border: `1px solid ${tplPreviewLang === lang ? 'var(--accent)' : 'var(--border)'}`,
+                          background: tplPreviewLang === lang ? 'var(--accent)22' : 'none',
+                          color: tplPreviewLang === lang ? 'var(--accent)' : 'var(--text-secondary)',
+                        }}>{lang}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{
+                    background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
+                    padding: '14px 16px', fontSize: 12, lineHeight: 1.7, color: 'var(--text)',
+                  }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+                      To: {tplPreviewContact.email}<br />
+                      Subject: {tplPreviewContact.subject}
+                    </div>
+                    <div dangerouslySetInnerHTML={{ __html: buildTplBody({ ...tplPreviewContact, language: tplPreviewLang }) }} />
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    Preview using <strong>{tplPreviewContact.firstName} {tplPreviewContact.lastName}</strong> @ {tplPreviewContact.company}.
+                    Changes apply to all {finalContacts.length} contacts when you proceed.
+                  </div>
+                </div>
+              </div>
+              <div style={S.footer}>
+                <button style={S.btnSecondary} onClick={() => setStep('configure')}>← Back</button>
+                <button
+                  style={{ ...S.btnPrimary, opacity: finalContacts.length === 0 ? 0.4 : 1 }}
+                  disabled={finalContacts.length === 0}
+                  onClick={applyTemplateAndGoToReview}
+                >
+                  Review {finalContacts.length} {draftMode ? 'drafts' : 'emails'} →
                 </button>
               </div>
             </div>
@@ -753,7 +972,7 @@ export default function CampaignWizard({
                 </div>
               </div>
               <div style={S.footer}>
-                <button style={S.btnSecondary} onClick={() => setStep('configure')}>← Back</button>
+                <button style={S.btnSecondary} onClick={() => setStep('template')}>← Back</button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   {launchError && <span style={{ fontSize: 12, color: '#f87171' }}>{launchError}</span>}
                   <button

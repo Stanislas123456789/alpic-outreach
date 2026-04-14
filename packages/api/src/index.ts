@@ -59,7 +59,8 @@ function requireAlpicEmail(
     req.path === '/api/senders/auth' ||
     req.path === '/api/senders/auth/callback' ||
     req.path === '/health' ||
-    req.path === '/api/diag'
+    req.path === '/api/diag' ||
+    req.path.startsWith('/pixel/')
   ) {
     next();
     return;
@@ -80,6 +81,47 @@ app.use('/api/senders', sendersRouter);
 app.use('/api/pipeline', pipelineRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+
+// ─── Open tracking pixel ──────────────────────────────────────────────────────
+// Called when an email recipient opens the email (1x1 transparent gif embedded).
+// No auth required — this endpoint is hit by the recipient's email client.
+app.get('/pixel/:contactId', async (req, res) => {
+  // Return the pixel immediately so the email client isn't kept waiting
+  const pixel = Buffer.from(
+    'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+    'base64'
+  );
+  res.setHeader('Content-Type', 'image/gif');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.end(pixel);
+
+  // Then increment open count asynchronously
+  try {
+    const rowIndex = parseInt(req.query.row as string);
+    const sheetId = (req.query.sheetId as string) || process.env.GOOGLE_SHEET_ID;
+    const sheetTab = (req.query.tab as string) || process.env.GOOGLE_SHEET_TAB || 'Master Table';
+    if (!rowIndex || rowIndex < 2) return;
+
+    const { incrementOpenCount, getSentContacts, updateContactStatus } = await import('../../pipeline/src/sheets');
+    // Look up current open count for this row
+    const contacts = await getSentContacts(sheetId, sheetTab);
+    const contact = contacts.find(c => c.rowIndex === rowIndex);
+    if (!contact) return;
+
+    const now = new Date().toISOString();
+    await incrementOpenCount(rowIndex, contact.openCount || 0, now, sheetId, sheetTab);
+
+    // Also update status to "opened" if it was just "sent"
+    if (contact.status === 'sent') {
+      await updateContactStatus(rowIndex, { status: 'opened' }, sheetId, sheetTab);
+    }
+
+    console.log(`[pixel] Open tracked: row=${rowIndex} contact=${contact.email} opens=${(contact.openCount || 0) + 1}`);
+  } catch (err: any) {
+    console.error('[pixel] Error tracking open:', err.message);
+  }
+});
 
 // GET /api/diag — diagnose credentials without exposing secrets
 app.get('/api/diag', async (_req, res) => {
