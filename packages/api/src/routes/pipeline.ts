@@ -413,6 +413,10 @@ router.get('/sheet-headers', async (req: Request, res: Response) => {
 router.post('/run-tracker', async (req: Request, res: Response) => {
   try {
     const { checkReplies, checkBounces } = await import('../../../pipeline/src/tracker');
+    const { setSenders } = await import('../../../pipeline/src/gmail');
+    // Inject senders from the API store so the pipeline module can use them
+    const senders = readSenders().filter(s => !!s.refreshToken);
+    setSenders(senders.map(s => ({ ...s })));
     const lookbackDays: number = parseInt(req.body?.lookbackDays) || 30;
     const sheetTargets = getUniqueCampaignSheets();
 
