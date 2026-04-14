@@ -306,19 +306,50 @@ router.delete('/campaigns/:id', (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// GET /api/pipeline/preview?sheetId=xxx&tab=TRAVEL&limit=5
+// GET /api/pipeline/preview?sheetId=xxx&tab=TRAVEL&limit=5&includeSent=true
 // Returns pending contacts with generated subject + body — no emails sent
+// Pass includeSent=true to also include already-sent contacts (for dedup UI)
 router.get('/preview', async (req: Request, res: Response) => {
   const sheetId = req.query.sheetId as string | undefined;
   const tab = req.query.tab as string | undefined;
   const limit = Math.min(parseInt(req.query.limit as string || '10'), 500);
+  const includeSent = req.query.includeSent === 'true';
 
   try {
-    const { getPendingContacts } = await import('../../../pipeline/src/sheets');
+    const { getPendingContacts, getSentContacts, setUserSheetsToken } = await import('../../../pipeline/src/sheets');
     const { buildSubject, buildBody } = await import('../../../pipeline/src/template');
-    const contacts = await getPendingContacts(limit, sheetId, tab);
-    res.json(
-      contacts.map(c => ({
+
+    // Inject user OAuth token so preview uses the same auth path as the pipeline
+    const senders = readSenders().filter(s => !!s.refreshToken);
+    setUserSheetsToken(senders[0]?.refreshToken ?? null);
+
+    const pending = await getPendingContacts(limit, sheetId, tab);
+    const sentCount = includeSent ? (await getSentContacts(sheetId, tab)).length : undefined;
+
+    const mapped = pending.map(c => ({
+      id: c.id,
+      rowIndex: c.rowIndex,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      email: c.email,
+      company: c.company,
+      industry: c.industry,
+      country: c.country,
+      role: c.role,
+      language: c.language,
+      competitors: c.competitors,
+      competitorsLive: c.competitorsLive,
+      profileGroup: c.profileGroup,
+      weekAdded: c.weekAdded,
+      subject: c.emailSubject || buildSubject(c),
+      body: c.emailBody || buildBody(c),
+      alreadySent: false,
+    }));
+
+    // When includeSent requested, also fetch sent contacts so the UI can show them (grayed out)
+    if (includeSent) {
+      const sent = await getSentContacts(sheetId, tab);
+      const sentMapped = sent.slice(0, 500).map(c => ({
         id: c.id,
         rowIndex: c.rowIndex,
         firstName: c.firstName,
@@ -330,13 +361,17 @@ router.get('/preview', async (req: Request, res: Response) => {
         role: c.role,
         language: c.language,
         competitors: c.competitors,
-        competitorsLive: c.competitorsLive,
-        profileGroup: c.profileGroup,
-        weekAdded: c.weekAdded,
-        subject: c.emailSubject || buildSubject(c),
-        body: c.emailBody || buildBody(c),
-      }))
-    );
+        competitorsLive: c.competitorsLive || '',
+        profileGroup: c.profileGroup || '',
+        weekAdded: c.weekAdded || '',
+        subject: '',
+        body: '',
+        alreadySent: true,
+      }));
+      res.json([...mapped, ...sentMapped]);
+    } else {
+      res.json(mapped);
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
