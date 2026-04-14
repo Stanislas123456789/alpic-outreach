@@ -181,13 +181,32 @@ export default function SenderPanel({
   const [showSenders, setShowSenders] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [scheduleValue, setScheduleValue] = useState('');
-  const [activeCampaignId, setActiveCampaignId] = useState<string | undefined>(undefined);
+
+  // Persist active campaign across page reloads
+  const [activeCampaignId, setActiveCampaignIdRaw] = useState<string | undefined>(
+    () => localStorage.getItem('activeCampaignId') || undefined
+  );
+  function setActiveCampaignId(id: string | undefined) {
+    setActiveCampaignIdRaw(id);
+    if (id) localStorage.setItem('activeCampaignId', id);
+    else localStorage.removeItem('activeCampaignId');
+  }
 
   const { campaigns, cancelCampaign } = useCampaigns(user);
 
+  // Auto-reconnect live view when a running campaign is detected (e.g. after reload).
+  // Track the last running ID we've seen so we only react to changes, not every poll.
+  const lastRunningId = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (pipelineStatus?.running) setShowLive(true);
-  }, [pipelineStatus?.running]);
+    if (campaigns.length === 0) return;
+    const running = campaigns.find(c => c.status === 'running');
+    if (running && running.id !== lastRunningId.current) {
+      lastRunningId.current = running.id;
+      setActiveCampaignId(running.id);
+      setShowLive(true);
+    }
+    if (!running) lastRunningId.current = undefined;
+  }, [campaigns]);
 
   function handleLaunchClick() {
     if (sources.length > 1) {
@@ -453,7 +472,7 @@ export default function SenderPanel({
           </div>
           <SendLiveView
             pollProgress={activePollProgress}
-            onDone={() => { setShowLive(false); onRefresh(); }}
+            onDone={() => { setShowLive(false); setActiveCampaignId(undefined); onRefresh(); }}
           />
         </div>
       )}
