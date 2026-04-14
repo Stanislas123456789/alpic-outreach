@@ -172,7 +172,7 @@ export default function CampaignWizard({
     const cutoff = new Date(dateFrom);
     return allContacts.filter(c => {
       const d = parseWeekAdded(c.weekAdded);
-      if (!d) return false; // exclude if date unparseable when filter is active
+      if (!d) return true; // no date info → include
       return d >= cutoff;
     });
   }, [allContacts, dateFrom]);

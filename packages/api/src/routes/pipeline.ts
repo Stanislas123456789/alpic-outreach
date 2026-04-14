@@ -438,18 +438,9 @@ router.post('/run-tracker', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/pipeline/clean-legacy — one-shot: clear garbage sentAt/messageId
-// values from columns T & U (old schema artifacts). Safe to call multiple times.
-router.post('/clean-legacy', async (req: Request, res: Response) => {
-  try {
-    const { clearLegacyTrackingGarbage } = await import('../../../pipeline/src/sheets');
-    const sheetId  = (req.body?.sheetId  as string | undefined) || undefined;
-    const sheetTab = (req.body?.sheetTab as string | undefined) || undefined;
-    const cleared = await clearLegacyTrackingGarbage(sheetId, sheetTab);
-    res.json({ ok: true, clearedRows: cleared });
-  } catch (err: any) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
+// POST /api/pipeline/clean-legacy — DISABLED (schema now correctly maps T/U to sentAt/messageId)
+router.post('/clean-legacy', (_req: Request, res: Response) => {
+  res.json({ ok: false, error: 'clean-legacy is disabled — schema has been corrected, T/U contain valid tracking data.' });
 });
 
 export default router;
