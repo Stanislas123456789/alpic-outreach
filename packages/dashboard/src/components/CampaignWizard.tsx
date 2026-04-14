@@ -91,16 +91,34 @@ const SPEED_OPTIONS: { id: SpeedMode; label: string; desc: string; color: string
 
 function parseWeekAdded(weekAdded?: string): Date | null {
   if (!weekAdded) return null;
-  // Try DD-MM-YYYY or DD/MM/YYYY (sheet format: "30-03-2026")
-  const dmy = weekAdded.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
-  if (dmy) {
-    const d = new Date(parseInt(dmy[3]), parseInt(dmy[2]) - 1, parseInt(dmy[1]));
-    if (!isNaN(d.getTime())) return d;
+
+  // Handle ambiguous N1-N2-YYYY formats (DD-MM vs MM-DD).
+  // weekAdded is always a past date (when the contact was added), so when
+  // both interpretations are mathematically valid we prefer the one that is
+  // not in the future — e.g. "04-06-2026" today (Apr 14) is April 6 (MM-DD),
+  // not June 4 (DD-MM which would be 51 days in the future).
+  const parts = weekAdded.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (parts) {
+    const a = parseInt(parts[1]), b = parseInt(parts[2]), year = parseInt(parts[3]);
+    const now = Date.now();
+    const ddmm = (b >= 1 && b <= 12 && a >= 1 && a <= 31) ? new Date(year, b - 1, a) : null;
+    const mmdd = (a >= 1 && a <= 12 && b >= 1 && b <= 31) ? new Date(year, a - 1, b) : null;
+    const ddmmOk = ddmm && !isNaN(ddmm.getTime());
+    const mmddOk = mmdd && !isNaN(mmdd.getTime());
+    if (ddmmOk && mmddOk) {
+      // Both valid — prefer whichever is not in the future; ties go to DD-MM.
+      if (ddmm!.getTime() > now && mmdd!.getTime() <= now) return mmdd;
+      return ddmm;
+    }
+    if (ddmmOk) return ddmm;
+    if (mmddOk) return mmdd;
   }
-  // Try direct Date parse (ISO "2026-04-12", "Apr 7 2026", etc.)
+
+  // ISO "2026-04-12", natural "Apr 7 2026", etc.
   const d = new Date(weekAdded);
   if (!isNaN(d.getTime())) return d;
-  // Try "W{n}" or "2026-W{n}" ISO week format
+
+  // "W{n}" or "2026-W{n}" ISO week format
   const weekMatch = weekAdded.match(/(?:(\d{4})-)?W(\d{1,2})/i);
   if (weekMatch) {
     const year = weekMatch[1] ? parseInt(weekMatch[1]) : new Date().getFullYear();
