@@ -163,7 +163,7 @@ export async function getPendingContacts(
       estRevenue: parseFloat(row[SHEET_COLUMNS.estRevenue]) || undefined,
       estEmployees: parseInt(row[SHEET_COLUMNS.estEmployees]) || undefined,
       competitorsLive: row[SHEET_COLUMNS.competitorsLive] || '',
-      competitors: row[SHEET_COLUMNS.competitors] || '',
+      competitors: row[SHEET_COLUMNS.competitors] || row[SHEET_COLUMNS.competitorsLive] || '',
       techDNA: row[SHEET_COLUMNS.techDNA] || '',
       aiInitiatives: row[SHEET_COLUMNS.aiInitiatives] || '',
       urgencyScore: parseInt(row[SHEET_COLUMNS.urgencyScore]) || undefined,
