@@ -372,7 +372,11 @@ router.get('/preview', async (req: Request, res: Response) => {
       res.json(mapped);
     }
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const isPermission = /insufficient.?permission|403|forbidden/i.test(err.message || '');
+    const message = isPermission
+      ? 'Sheets permission denied — disconnect and reconnect your Gmail sender account to grant Sheets access, then retry.'
+      : err.message;
+    res.status(isPermission ? 403 : 500).json({ error: message });
   }
 });
 
