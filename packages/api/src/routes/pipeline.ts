@@ -397,7 +397,7 @@ router.get('/auth-debug', (_req: Request, res: Response) => {
 // so you can verify SHEET_COLUMNS indices match the real layout.
 router.get('/sheet-headers', async (req: Request, res: Response) => {
   try {
-    const { getSheetHeaders } = await import('../../../../pipeline/src/sheets');
+    const { getSheetHeaders } = await import('../../../pipeline/src/sheets');
     const sheetId  = req.query.sheetId  as string | undefined;
     const sheetTab = req.query.sheetTab as string | undefined;
     const headers = await getSheetHeaders(sheetId, sheetTab);
@@ -412,7 +412,7 @@ router.get('/sheet-headers', async (req: Request, res: Response) => {
 // the bounce search window (useful for checking old campaigns retroactively).
 router.post('/run-tracker', async (req: Request, res: Response) => {
   try {
-    const { checkReplies, checkBounces } = await import('../../../../pipeline/src/tracker');
+    const { checkReplies, checkBounces } = await import('../../../pipeline/src/tracker');
     const lookbackDays: number = parseInt(req.body?.lookbackDays) || 30;
     const sheetTargets = getUniqueCampaignSheets();
 
@@ -442,7 +442,7 @@ router.post('/run-tracker', async (req: Request, res: Response) => {
 // values from columns T & U (old schema artifacts). Safe to call multiple times.
 router.post('/clean-legacy', async (req: Request, res: Response) => {
   try {
-    const { clearLegacyTrackingGarbage } = await import('../../../../pipeline/src/sheets');
+    const { clearLegacyTrackingGarbage } = await import('../../../pipeline/src/sheets');
     const sheetId  = (req.body?.sheetId  as string | undefined) || undefined;
     const sheetTab = (req.body?.sheetTab as string | undefined) || undefined;
     const cleared = await clearLegacyTrackingGarbage(sheetId, sheetTab);
