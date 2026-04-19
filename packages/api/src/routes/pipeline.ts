@@ -136,6 +136,7 @@ async function executeCampaign(
   maxEmails?: number,
   speedMode?: string,
   draftMode?: boolean,
+  senderEmail?: string,
 ) {
   campaign.status = 'running';
   campaign.startedAt = new Date().toISOString();
@@ -147,9 +148,15 @@ async function executeCampaign(
     const { setSenders, getSenders } = await import('../../../pipeline/src/gmail');
     const { setUserSheetsToken } = await import('../../../pipeline/src/sheets');
 
-    const senders = readSenders().filter(s => !!s.refreshToken);
+    let senders = readSenders().filter(s => !!s.refreshToken);
+    // If a specific sender was requested, restrict to that sender only.
+    // This ensures each user's campaign sends only from their own email.
+    if (senderEmail) {
+      const matched = senders.filter(s => s.email === senderEmail);
+      if (matched.length > 0) senders = matched;
+    }
     setSenders(senders.map(s => ({ ...s })));
-    // Inject the first sender's refresh token for Sheets auth (bypasses Workspace service account restrictions)
+    // Use the campaign sender's token for Sheets auth
     const sheetsToken = senders[0]?.refreshToken ?? null;
     setUserSheetsToken(sheetsToken);
 
@@ -205,6 +212,8 @@ router.post('/run', async (req: Request, res: Response) => {
   const maxEmails: number | undefined = req.body?.maxEmails ? Number(req.body.maxEmails) : undefined;
   const speedMode: string | undefined = req.body?.speedMode;
   const draftMode: boolean = req.body?.draftMode === true;
+  // senderEmail restricts sending to a single sender account — prevents cross-user email mixing
+  const senderEmail: string | undefined = req.body?.senderEmail || (req.headers['x-auth-email'] as string | undefined);
 
   // Check if another campaign is already running for the same sheetId+sheetTab
   for (const c of campaigns.values()) {
@@ -239,7 +248,7 @@ router.post('/run', async (req: Request, res: Response) => {
   if (isInFuture) {
     const delay = scheduleTime.getTime() - now.getTime();
     campaign.scheduledTimer = setTimeout(() => {
-      executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode);
+      executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail);
     }, delay);
 
     saveCampaigns(campaigns);
@@ -262,7 +271,7 @@ router.post('/run', async (req: Request, res: Response) => {
     });
 
     // Run async after responding
-    executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode);
+    executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail);
   }
 });
 
@@ -320,7 +329,11 @@ router.get('/preview', async (req: Request, res: Response) => {
     const { buildSubject, buildBody } = await import('../../../pipeline/src/template');
 
     const senders = readSenders().filter(s => !!s.refreshToken);
-    setUserSheetsToken(senders[0]?.refreshToken ?? null);
+    if (senders.length === 0) throw new Error('No senders connected');
+    // Prefer the requesting user's own token for Sheets auth
+    const userEmail = req.headers['x-auth-email'] as string | undefined;
+    const preferred = (userEmail && senders.find(s => s.email === userEmail)) || senders[0];
+    setUserSheetsToken(preferred.refreshToken);
 
     const pending = await getPendingContacts(limit, sheetId, tab);
     const sentCount = includeSent ? (await getSentContacts(sheetId, tab)).length : undefined;
@@ -372,11 +385,15 @@ router.get('/preview', async (req: Request, res: Response) => {
       res.json(mapped);
     }
   } catch (err: any) {
-    const isPermission = /insufficient.?permission|403|forbidden/i.test(err.message || '');
-    const message = isPermission
-      ? 'Sheets permission denied — disconnect and reconnect your Gmail sender account to grant Sheets access, then retry.'
-      : err.message;
-    res.status(isPermission ? 403 : 500).json({ error: message });
+    const msg = err.message || '';
+    const isPermission = /insufficient.?permission|403|forbidden|permission.?denied|caller does not have|authentication scopes|no senders connected/i.test(msg);
+    const noSenders = /no senders/i.test(msg);
+    const message = noSenders
+      ? 'No Gmail sender connected — go to Settings → Senders and connect a Gmail account first, then retry.'
+      : isPermission
+        ? 'Sheets permission denied — go to Settings → Senders and reconnect your Gmail account to refresh access, then retry.'
+        : msg;
+    res.status(isPermission || noSenders ? 403 : 500).json({ error: message });
   }
 });
 

@@ -233,25 +233,18 @@ function wireTokenRotation() {
 }
 
 // ─── Pipeline cron (only when START_PIPELINE_CRON=true) ──────────────────────
+//
+// IMPORTANT: The auto-send cron has been intentionally removed.
+// Emails must ONLY be sent via an explicit POST /api/pipeline/run triggered by
+// a user clicking "Launch Campaign" in the wizard.  Running the pipeline on a
+// schedule caused emails to be sent without user consent (ghost sends).
+//
+// The cron now only runs read-only maintenance jobs:
+//   • Reply / bounce detection (reads Gmail, writes sheet status)
+//   • Daily send-counter resets
 
 async function startPipelineCron() {
-  const { runPipeline } = await import('../../pipeline/src/index');
-  const { setSenders, getSenders } = await import('../../pipeline/src/gmail');
   const { checkReplies, checkBounces } = await import('../../pipeline/src/tracker');
-
-  // Main pipeline: every 30 min, Mon–Fri, 8am–7pm
-  cron.schedule('*/30 8-19 * * 1-5', async () => {
-    console.log('⏰ [cron] Pipeline run triggered');
-    resetDailyCountersIfNeeded();
-    const senders = readSenders().filter(s => !!s.refreshToken);
-    if (senders.length === 0) {
-      console.log('[cron] No connected senders — skipping');
-      return;
-    }
-    setSenders(senders.map(s => ({ ...s })));
-    await runPipeline().catch(err => console.error('[cron] Pipeline error:', err));
-    syncSentCounts(getSenders());
-  });
 
   // Reply / bounce check: every 15 min — runs on all unique sheets used by
   // recent campaigns so non-default-sheet contacts are tracked correctly.
@@ -270,7 +263,8 @@ async function startPipelineCron() {
     resetDailyCountersIfNeeded();
   });
 
-  console.log('✅ Pipeline cron jobs active (Mon–Fri 8am–7pm)');
+  console.log('✅ Maintenance cron jobs active (reply/bounce checks + daily reset)');
+  console.log('   ⚠️  Auto-send is DISABLED — emails only send via explicit Launch Campaign');
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
@@ -286,10 +280,11 @@ if (START_CRON) {
 
 app.listen(API_PORT, () => {
   console.log(`
-  ╔═══════════════════════════════════╗
-  ║   ALPIC OUTREACH API v1.0         ║
-  ║   http://localhost:${API_PORT}          ║
-  ║   Pipeline cron: ${START_CRON ? 'ENABLED ' : 'DISABLED'}        ║
-  ╚═══════════════════════════════════╝
+  ╔════════════════════════════════════════╗
+  ║   ALPIC OUTREACH API v1.0              ║
+  ║   http://localhost:${API_PORT}               ║
+  ║   Maintenance cron: ${START_CRON ? 'ENABLED ' : 'DISABLED'}           ║
+  ║   Auto-send: ALWAYS DISABLED           ║
+  ╚════════════════════════════════════════╝
   `);
 });

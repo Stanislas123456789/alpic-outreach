@@ -17,6 +17,7 @@ interface LaunchOpts {
   maxEmails: number;
   speedMode: SpeedMode;
   draftMode: boolean;
+  senderEmail: string;
 }
 
 interface Props {
@@ -134,6 +135,7 @@ function parseWeekAdded(weekAdded?: string): Date | null {
 // ─── Main Wizard ──────────────────────────────────────────────────────────────
 
 export default function CampaignWizard({
+  user,
   sources,
   activeSheetId,
   activeSheetTab,
@@ -163,8 +165,11 @@ export default function CampaignWizard({
   const [speedMode, setSpeedMode] = useState<SpeedMode>('normal');
   const [draftMode, setDraftMode] = useState(false);
 
+  // Sender selection — locked to the logged-in user to prevent cross-user sends
+  const [senderEmail] = useState<string>(user.email);
+
   // Step 3.5 — Template editor
-  const [tplSenderName, setTplSenderName] = useState('Stanislas Michel');
+  const [tplSenderName, setTplSenderName] = useState(user.name || user.email.split('@')[0]);
   const [tplClosingEn, setTplClosingEn] = useState('Best');
   const [tplClosingFr, setTplClosingFr] = useState('Cordialement');
   const [tplHookEn, setTplHookEn] = useState(
@@ -351,6 +356,7 @@ export default function CampaignWizard({
         maxEmails: finalContacts.length - manualExcludes.size,
         speedMode,
         draftMode,
+        senderEmail,
       });
       setActiveCampaignId(result?.campaignId);
       setStep('live');
@@ -731,6 +737,7 @@ export default function CampaignWizard({
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Campaign summary</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {[
+                        ['From', senderEmail],
                         ['Sheet', sources.find(s => s.sheetId === pickedSheetId)?.name || pickedSheetTab],
                         ['Industries', selectedIndustries.size === industries.length ? 'All' : Array.from(selectedIndustries).join(', ')],
                         ['Date filter', dateFrom ? `After ${new Date(dateFrom).toLocaleDateString()}` : 'None'],

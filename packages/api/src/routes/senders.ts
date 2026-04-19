@@ -63,6 +63,13 @@ router.get('/auth/callback', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/senders/export — export full sender data including refresh tokens
+// Use this to back up tokens before a Railway redeploy, then restore via /seed.
+// Protected by the same @alpic.ai auth middleware as all other endpoints.
+router.get('/export', (_req: Request, res: Response) => {
+  res.json(readSenders());
+});
+
 // POST /api/senders/seed — overwrite senders.json (used to restore tokens after redeploy)
 router.post('/seed', (req: Request, res: Response) => {
   const senders = req.body;

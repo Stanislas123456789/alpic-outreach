@@ -129,6 +129,7 @@ export function useApi(user: AuthUser | null) {
     speedMode?: 'slow' | 'normal' | 'fast';
     draftMode?: boolean;
     scheduledAt?: string;
+    senderEmail?: string;
   }): Promise<{ campaignId?: string }> => {
     setLoading(true);
     setRunMessage(null);
