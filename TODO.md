@@ -1,77 +1,96 @@
-# Alpic Outreach — Improvement Backlog
+# Alpic Outreach — Resilience & Roadmap Backlog
 
-A prioritized list of code-base improvements. Findings are grouped by priority and reference concrete file paths.
+Mission: make the platform the kind of stack that **never makes you log out and redo OAuth to launch a campaign**, that degrades gracefully instead of failing, and that grows into a proper outreach tool with follow-ups and reply tracking.
 
 Legend:
-- **P0** — security / data loss / production incident. Do immediately.
-- **P1** — correctness bugs or high-impact gaps. Do this week.
-- **P2** — quality, tests, architecture. Do this month.
-- **P3** — nice-to-have polish and DX.
+- **P0** — resilience blockers: things that currently break campaigns or cost you hours.
+- **P1** — high-impact reliability + the follow-up feature.
+- **P2** — quality-of-life, observability, and growth features.
+- **P3** — polish and longer-term bets.
 
 ---
 
-## P0 — Security (do now)
+## P0 — Kill the "auth error, please log out and redo OAuth" class of failures
 
-- [ ] **Rotate `GMAIL_CLIENT_SECRET`**. A real value is committed at `packages/api/.env.example:8` (`GOCSPX-…`). Rotate in Google Cloud Console, then replace the file's value with a placeholder like `GOCSPX-your-secret-here`.
-- [ ] **Rotate `VITE_GOOGLE_API_KEY`**. Committed at `packages/dashboard/.env.production.local:25`. Regenerate in Google Cloud and restrict the new key to Sheets API + specific referrers.
-- [ ] **Remove `packages/dashboard/.env.production.local` from git**. It is tracked (`git ls-files` confirms). Delete it, add `*.env.production.local` and `.env*` (except `.env.example`) to `.gitignore`, and purge from history with `git filter-repo`. The Vercel OIDC token in the file is already past its `exp`, but the Google API key is live.
-- [ ] **Tighten `.gitignore`**. The current 87-byte `.gitignore` is missing patterns for `.env`, `.env.*`, `data/*.json` (sender tokens), and `packages/api/data/senders.json`.
-- [ ] **Audit `packages/api/data/` for committed tokens**. If `senders.json` was ever committed, treat all sender refresh tokens as compromised and re-run OAuth for every sender.
+These are the specific fixes that together make OAuth pain go away, without touching Google Cloud config.
 
-## P1 — Correctness & reliability
+- [ ] **Persistent, DB-backed sender-token store.** Move sender tokens (`refreshToken`, `accessToken`, `expiresAt`, `lastRefreshedAt`, `lastError`, `status`) out of `.env` and `packages/api/data/senders.json` into a real store — Railway Postgres or a SQLite file on a Railway volume. Redeploys must not wipe tokens. Rotation must be atomic (row-level write, not file rewrite).
+- [ ] **Background token-refresh worker.** A cron inside the API process runs every 30 min and proactively refreshes every sender's access token well before expiry. Don't wait until send-time to discover a token is dead.
+- [ ] **Classify refresh errors properly** in `packages/pipeline/src/gmail.ts`. Distinguish:
+  - `invalid_grant` → refresh token revoked/expired, mark sender `needs_reconnect`.
+  - `invalid_client` → config bug, alert ops, don't touch sender state.
+  - Network / 5xx → transient, retry with exponential backoff (up to 5 attempts over ~5 min).
+  Today everything gets treated the same and the user ends up logging out.
+- [ ] **Pre-flight check on campaign launch.** Before `POST /api/pipeline/run` starts sending, ping `gmail.users.getProfile` for every sender the campaign will use. If any sender is red, return a structured response like `{ error: "sender_unavailable", senders: [{email, reason}] }` so the UI can render inline "Reconnect" buttons instead of a generic 500.
+- [ ] **Inline reconnect flow in the dashboard.** When a sender is red, clicking "Reconnect" opens Google OAuth in a **popup** (not full redirect) and on success the dashboard updates the sender chip to green — without logging the user out of the dashboard. Uses the existing `GET /api/senders/auth?email=…` but with `window.open` + `postMessage` from the callback page.
+- [ ] **Hot-swap senders mid-campaign.** If a sender's token dies after the campaign started, queue their remaining contacts back and route them to another available sender with budget. Campaign keeps running; user sees a non-blocking banner "1 sender paused — 12 contacts reassigned."
+- [ ] **Never lose a contact to a crash: idempotent send ledger.** Add a `sends` table with `(campaignId, contactId, senderEmail, status, attemptedAt, gmailMessageId, error)`. Before each send, insert `pending` row; on success, update with `gmailMessageId`. Pipeline always resumes from the ledger, not from sheet state. Eliminates double-sends after a crash and makes "retry failed sends" trivial.
+- [ ] **Campaign state machine + pause/resume.** Campaigns get explicit states: `queued | running | paused | completed | failed`. User can pause from the dashboard. Pausing is respected mid-batch (between contacts). Crashed API → campaign auto-resumes on boot from the ledger.
 
-- [ ] **Add a persistent sender-token store**. HANDOFF.md flags this: tokens currently live in `.env`/`senders.json` on the API host. Move to a managed DB (Railway Postgres, Supabase, or a Railway-volume-backed SQLite) so token rotation survives redeploys and doesn't race with `.env` parsing.
-- [ ] **Fix fire-and-forget campaign execution**. `packages/api/src/routes/pipeline.ts` `POST /run` responds before the campaign finishes; errors only reach logs. Persist a `campaign_runs` record with state (`running|success|failed`, `error`, `counts`) so the UI can poll `/api/pipeline/status` and surface failures.
-- [ ] **Await status writes before moving to next contact** in `packages/pipeline/src/index.ts`. If `updateContactStatus` fails, the next send proceeds against stale sheet state — risk of double-sending.
-- [ ] **Validate `POST /api/senders/seed` input** (`packages/api/src/routes/senders.ts`). Accepts arbitrary JSON and overwrites the sender store. Add a zod schema + require an internal auth token, and reject if any sender lacks `email`/`refreshToken`.
-- [ ] **Sanitize email preview rendering**. `packages/dashboard/src/components/CampaignWizard.tsx` and `SendPreviewModal.tsx` both use `dangerouslySetInnerHTML` on built email bodies. Contact fields (`firstName`, `company`, `competitors`) flow into the HTML unescaped — a malicious row in the sheet could execute JS in the reviewer's browser. Either escape all interpolated contact fields in `template.ts`, or run the built HTML through DOMPurify before preview.
-- [ ] **Escape contact fields inside `buildSubject`/`buildBody`** in `packages/pipeline/src/template.ts`. A contact with `firstName = "</p><script>…"` would inject into the outgoing email too. Add a small `escapeHtml()` helper and apply to every interpolation.
-- [ ] **Handle Google token rotation concurrency** in `packages/pipeline/src/gmail.ts`. The `.env` write-back is not atomic; two refreshes running in parallel can clobber one another. Either serialize rotations with a mutex or (preferred) route rotations through the API's `setTokenRotationCallback` and drop the `.env` fallback entirely.
-- [ ] **Add a `/health` endpoint** to `packages/api/src/index.ts` so Railway can do proper health checks (`{ ok: true, uptime, version }`).
+## P1 — Resilience everywhere the API talks to the outside world
 
-## P2 — Architecture, testing, DX
+- [ ] **Google API retry + circuit breaker.** Wrap every Gmail and Sheets call with:
+  - retry on 429 / 5xx using jittered exponential backoff (1s → 30s, max 6 tries),
+  - circuit breaker: after 20 failures in 2 min, open the circuit, pause the pipeline, and emit an incident event instead of hammering Google.
+- [ ] **Sheets write serialization.** Today each contact's status update is an individual `values.update` call. Replace with a per-batch queue that coalesces writes into a single `values.batchUpdate`, with retry + idempotency. Prevents 429s and partial updates.
+- [ ] **Structured campaign-run records.** The existing fire-and-forget `POST /api/pipeline/run` in `packages/api/src/routes/pipeline.ts` responds before the job is done and drops errors on the floor. Persist a `campaign_runs` row (`runId`, `campaignId`, `status`, `startedAt`, `finishedAt`, `counts`, `errors[]`). `/api/pipeline/status` polls it. UI surfaces per-run errors instead of the user staring at a spinner.
+- [ ] **Dead-letter queue for failed sends.** Failed contacts stay in the ledger with `status=failed` and a reason. Dashboard shows a "Failed sends (12)" tab with a bulk "Retry" button.
+- [ ] **Pre-send email validation pass.** Before Gmail quota is spent, run MX lookup + disposable-domain check on batch recipients. Mark invalid rows in the sheet so the pipeline skips them and the user sees why.
+- [ ] **Warm-up schedule to protect deliverability.** Ramp daily send limit per new sender automatically: 5 → 10 → 20 → 40 over the first two weeks. Stored per sender in the DB, enforced by the scheduler.
+- [ ] **Rate-aware scheduler.** Each sender gets a per-day and per-hour budget. Scheduler never exceeds it even if the user clicks "Run" five times. Simple counter in the ledger, not in memory.
+- [ ] **Graceful startup/shutdown.** On SIGTERM (Railway redeploy), the API should: stop accepting new campaign runs, drain the current batch to a clean contact boundary, mark the run `paused`, exit. On boot, resume `paused` runs. No more "redeploy == dropped campaign."
 
-- [ ] **Add a test suite**. Zero tests exist. Start with:
-  - `packages/pipeline`: `template.test.ts` (subject/body rendering, escaping), `gmail.test.ts` (mocked Gmail client, token rotation).
-  - `packages/api`: supertest coverage of `/api/senders/*` and `/api/pipeline/*`.
-  - `packages/dashboard`: React Testing Library for `CampaignWizard` state transitions.
-- [ ] **Add `typecheck` + `lint` scripts** to every workspace and a root `npm run check` that fans out. No TS noEmit is currently wired up.
-- [ ] **Add a CI workflow** (`.github/workflows/ci.yml`) that runs typecheck, lint, and tests on PR.
-- [ ] **Break up `packages/dashboard/src/App.tsx` (1 059 lines)**. Extract analytics widgets (`Funnel`, `RepLeaderboard`, `IndustryBreakdown`, `PipelineTable`) into dedicated files. Aim for < 200 lines in `App.tsx`.
-- [ ] **Break up `CampaignWizard.tsx` (1 211 lines)** into step components (`TemplateStep`, `RecipientsStep`, `PreviewStep`, `ReviewStep`) with a small reducer for wizard state.
-- [ ] **Split `packages/api/src/routes/pipeline.ts` (559 lines)** by concern: `preview.ts`, `run.ts`, `campaigns.ts`.
-- [ ] **Type-safe sheet columns**. `packages/pipeline/src/sheets.ts` sprinkles column letters (`W`, `X`, …) through the code. Replace with a single `SHEET_COLUMNS` enum/const map + typed row accessor.
-- [ ] **Extract shared utilities** into a new `packages/shared/` workspace: PEM key parsing (duplicated in `sheets.ts`, `gmail.ts`, `tracking-server/api/pixel/[id].js`), contact types, column map, HTML escape helper.
-- [ ] **Pagination on contact endpoints**. `GET /api/pipeline/preview` returns an unbounded list; `App.tsx` renders them all. Add `limit`/`offset`, default 100, paginate the table UI.
-- [ ] **Cache Sheets reads** in the dashboard with a stale-while-revalidate hook (5 min TTL). Right now each mount re-hits Sheets.
-- [ ] **Batch Sheets reads in `tracker.ts`**. Use `spreadsheets.values.batchGet` instead of one call per thread.
+## P1 — Follow-up sequences (big-picture feature)
 
-## P3 — Polish & ops
+The thing that actually grows reply rates. Design follows the resilience patterns above.
 
-- [ ] **Kill `--openssl-legacy-provider` in `Dockerfile:4`**. Upgrade `google-auth-library` / Node to 20+ and drop the flag; it masks RSA key bugs rather than fixing them.
-- [ ] **Deploy `packages/tracking-server`** (still listed as not deployed in HANDOFF.md) and point `TRACKING_BASE_URL` at the live domain. Verify open-tracking writes back to the sheet end-to-end.
-- [ ] **Make the `@alpic.ai` domain allow-list configurable** via `ALLOWED_EMAIL_DOMAINS` env var in `packages/api/src/routes/senders.ts:25` — currently hard-coded.
-- [ ] **Add structured logging** (pino) to the API + pipeline, with a `requestId` per campaign run, so Railway logs are searchable.
-- [ ] **Add basic request rate limiting** (express-rate-limit) on `/api/senders/auth` and `/api/pipeline/run` to reduce abuse surface.
-- [ ] **Update `README.md`** with the current layout (four workspaces, API server exists, Vercel + Railway deployment steps). The doc currently lags `HANDOFF.md`.
-- [ ] **Add JSDoc to public route handlers** in `packages/api/src/routes/*.ts` so OpenAPI/Swagger generation is trivial later.
-- [ ] **Extract magic numbers**: `BATCH_SIZE`, `MIN_DELAY_SECONDS`, `MAX_DELAY_SECONDS`, working-hours window, CC address — collect them into a single `config.ts` in the pipeline.
-- [ ] **Bundle-size audit** of the dashboard (`vite build --report`). Lazy-load `CampaignWizard`, `SendPreviewModal`, and the Recharts imports to shrink the initial chunk.
-- [ ] **Consistent error shape** across the API (`{ error: { code, message } }`) — currently mixes `res.status(400).send('string')` and `res.json({ error })`.
+- [ ] **Data model: sequences.** A campaign owns an ordered list of `steps`, each with `{ delayDays, template (en + fr), stopOnReply: true, stopOnOpen: false }`. Default: 3 steps at 0 / 4 / 9 days.
+- [ ] **Sheet schema extension.** Add columns per touch: `touch1_sent_at`, `touch1_opened_at`, `touch1_gmail_msg_id`, … up to touch3. Migration script idempotently adds missing columns.
+- [ ] **Follow-up scheduler job.** Separate cron every 15 min: finds contacts whose `touchN_sent_at` is ≥ step delay, have no reply, haven't opted out, and enqueues touch N+1 using the same sender + same Gmail thread (`In-Reply-To` + `References` headers) so follow-ups land as replies in the original thread.
+- [ ] **Reply detection.** For every sent email, store the Gmail `threadId`. Poll `users.threads.get` on a rolling window (last 30 days of active threads) every 10 min. If the thread has a new message from outside `@alpic.ai`, mark contact `replied_at`, write to sheet, and stop the sequence.
+- [ ] **Bounce detection.** Same polling loop looks for `Delivery Status Notification` / `mailer-daemon` messages in the sender's inbox addressed to our thread, flags the contact as bounced, removes from the queue.
+- [ ] **Opt-out handling.** Add a one-click unsubscribe link (stateless HMAC token → `packages/tracking-server/api/optout/[token]`). Endpoint marks contact opted out, sheet updated, all future touches skipped. Add `List-Unsubscribe` header too — improves deliverability.
+- [ ] **Sequence editor in the wizard.** Extend `CampaignWizard` with a new step "Follow-ups": add/remove steps, edit template per step, preview the full sequence for one contact. Keep the existing single-email flow as "1-step sequence."
+- [ ] **Thread view in dashboard.** Per-contact drawer showing the full conversation (sent emails + replies + opens/clicks timeline). Powered by the ledger + reply polling.
+
+## P2 — Observability, testing, and platform hardening
+
+- [ ] **Structured logging + request IDs.** pino everywhere, with `campaignRunId` / `contactId` / `senderEmail` on every line. Makes "why did this send fail?" a 5-second grep on Railway.
+- [ ] **Metrics + health.** `/api/health` returns `{ ok, dbOk, sendersHealthy, sendersDegraded, lastRunStatus }`. Railway health checks point at it. Bonus: a `/api/metrics` Prometheus-style endpoint so Grafana Cloud (free tier) can chart sends/day and token health.
+- [ ] **Incident webhook.** When a circuit breaker opens, a sender hits `needs_reconnect`, or a run fails, post to a Slack/Discord webhook so you find out before you notice.
+- [ ] **Automated tests where the risk is.** Start small, cover the resilience paths first:
+  - `packages/pipeline/gmail.test.ts`: mocked Gmail client, asserts retry + token-refresh classification.
+  - `packages/api/routes/senders.test.ts`: OAuth callback happy path + revoked-token path.
+  - `packages/api/routes/pipeline.test.ts`: run kicks off, ledger populated, crash recovery works.
+- [ ] **Typecheck + lint + CI.** `npm run check` across all packages, GitHub Actions runs it on PR.
+- [ ] **Dashboard "System Health" page.** Real-time view of every sender (green/yellow/red, last refresh, daily budget used), last 10 campaign runs, failed-sends count, circuit-breaker state. This is the UI you open when you suspect something's wrong — and it replaces the current "just try and see."
+- [ ] **Break up monolith components.** `App.tsx` (1 059 lines) and `CampaignWizard.tsx` (1 211 lines) are unmaintainable. Extract analytics widgets and wizard steps into their own files. Non-functional but unlocks the features above.
+- [ ] **Type-safe sheet column map** in `packages/pipeline/src/sheets.ts` — today column letters like `W` / `X` are magic strings, so adding the touch2/touch3 columns will break things silently. One enum + typed row accessor fixes it.
+- [ ] **Repo hygiene:** add `.env`, `.env.*`, `packages/api/data/senders.json` to `.gitignore`; delete `packages/dashboard/.env.production.local` from the working tree (leave your Google Cloud config alone — this is just tidying the repo). Won't require any console changes.
+
+## P3 — Growth features + longer-term bets
+
+- [ ] **A/B test subject lines.** Campaign can carry two subjects, split 50/50, dashboard shows open-rate per variant with a significance indicator.
+- [ ] **Schedule campaigns.** "Run this campaign Monday 8am Paris time" — queued as a future `campaign_run` row, scheduler picks it up.
+- [ ] **Draft-only mode per sender.** Instead of sending, create Gmail drafts in the sender's account. Useful for people who want to review before sending.
+- [ ] **CRM export.** One-click push of engaged contacts (replied / clicked) to HubSpot or Attio via their APIs.
+- [ ] **Daily digest email.** Cron at 8am local sends the team a digest: sends yesterday, replies, opens, failures, sender health. Forces the human into the loop without needing to open the dashboard.
+- [ ] **Multi-domain support.** Make the `@alpic.ai` allow-list an env var (`ALLOWED_EMAIL_DOMAINS`). Lets partners onboard.
+- [ ] **Template library.** Save / reuse templates across campaigns, with variables and preview, stored per user.
+- [ ] **Per-contact snooze.** "Don't touch this contact for 30 days." Respected by the scheduler.
+- [ ] **Contact dedup across campaigns.** Prevent the same email receiving two different campaigns in the same week.
 
 ---
 
-## Quick wins (< 30 min each)
+## The resilience theme in one paragraph
 
-- Remove `.env.production.local` + tighten `.gitignore`.
-- Add `/health` endpoint.
-- HTML-escape interpolations in `template.ts`.
-- Add `typecheck` scripts to every package.
-- Add CI workflow running typecheck.
+Every external call (Gmail, Sheets) must be retry-aware and circuit-broken. Every durable fact (tokens, campaigns, sends, replies) lives in a DB, not a JSON file or `.env`. Every failure mode has a classification → a UI state → a one-click recovery path (most importantly: the inline reconnect popup, so "re-do OAuth" stops meaning "log out"). Every restart resumes from the ledger, not from memory. Once those invariants hold, shipping follow-ups and reply detection is just more rows in the same tables.
 
-## Larger initiatives (multi-day)
+## Suggested build order
 
-- Persistent token store + migration from `.env`/JSON.
-- Campaign-run persistence + status polling.
-- Refactor the two 1 000-line React components.
-- Full test suite + CI gate.
+1. DB + sender store + send ledger (unblocks everything else).
+2. Token refresh worker + error classification + inline reconnect (kills the #1 pain).
+3. Pre-flight checks + campaign state machine + graceful shutdown (campaigns stop dying mid-run).
+4. Retry / circuit breaker + structured logging + health endpoint (observability).
+5. Follow-up sequences + reply detection (the growth feature, on top of a now-solid platform).
+6. A/B, scheduling, digests, CRM — flavor.
