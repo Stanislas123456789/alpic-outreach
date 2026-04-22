@@ -336,7 +336,7 @@ router.get('/preview', async (req: Request, res: Response) => {
   const includeSent = req.query.includeSent === 'true';
 
   try {
-    const { getPendingContacts, getSentContacts, setUserSheetsToken } = await import('../../../pipeline/src/sheets');
+    const { getPendingContacts, getAllContactedContacts, setUserSheetsToken } = await import('../../../pipeline/src/sheets');
     const { buildSubject, buildBody } = await import('../../../pipeline/src/template');
 
     const senders = readSenders().filter(s => !!s.refreshToken);
@@ -347,7 +347,9 @@ router.get('/preview', async (req: Request, res: Response) => {
     setUserSheetsToken(preferred.refreshToken);
 
     const pending = await getPendingContacts(limit, sheetId, tab);
-    const sentCount = includeSent ? (await getSentContacts(sheetId, tab)).length : undefined;
+    // Use getAllContactedContacts so the "already sent" count includes replied/bounced/yes/oui
+    // rows — matching the KPI strip's total-sent number.
+    const sentCount = includeSent ? (await getAllContactedContacts(sheetId, tab)).length : undefined;
 
     const mapped = pending.map(c => ({
       id: c.id,
@@ -369,9 +371,11 @@ router.get('/preview', async (req: Request, res: Response) => {
       alreadySent: false,
     }));
 
-    // When includeSent requested, also fetch sent contacts so the UI can show them (grayed out)
+    // When includeSent requested, also fetch all contacted rows so the UI can
+    // show them grayed-out (dedup). getAllContactedContacts covers sent/opened/
+    // replied/bounced/yes/oui + any row with sentAt or threadId.
     if (includeSent) {
-      const sent = await getSentContacts(sheetId, tab);
+      const sent = await getAllContactedContacts(sheetId, tab);
       const sentMapped = sent.slice(0, 500).map(c => ({
         id: c.id,
         rowIndex: c.rowIndex,

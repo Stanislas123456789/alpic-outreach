@@ -189,6 +189,70 @@ export async function getPendingContacts(
   return contacts;
 }
 
+// ─── Get ALL contacted contacts (for wizard dedup display) ───────────────────
+// Uses the same DONE_STATUSES + sentAt/threadId logic as getPendingContacts so
+// the "already sent" badge in the wizard matches the KPI's total-sent count.
+
+export async function getAllContactedContacts(
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<Contact[]> {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${a1Tab(sheetTab)}!A2:AE`,
+  });
+  const rows = res.data.values || [];
+  const DONE_STATUSES = new Set(['sent', 'bounced', 'opened', 'replied', 'skipped', 'invalid', 'sending', 'yes', 'oui']);
+  const contacts: Contact[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rawStatus = (row[SHEET_COLUMNS.status] || '').toString().toLowerCase().trim();
+    const sentAt = (row[SHEET_COLUMNS.sentAt] || '').toString().trim();
+    const threadId = (row[SHEET_COLUMNS.threadId] || '').toString().trim();
+    // Include contacts that getPendingContacts would skip
+    if (!DONE_STATUSES.has(rawStatus) && !sentAt && !threadId) continue;
+    const email = (row[SHEET_COLUMNS.email] || '').trim();
+    if (!email) continue;
+    contacts.push({
+      rowIndex: i + 2,
+      id: email,
+      firstName: (row[SHEET_COLUMNS.contactName] || '').split(' ')[0] || '',
+      lastName: '',
+      email,
+      role: '',
+      linkedIn: '',
+      profileGroup: '',
+      company: row[SHEET_COLUMNS.company] || '',
+      website: '',
+      industry: row[SHEET_COLUMNS.industry] || '',
+      subIndustry: '',
+      country: row[SHEET_COLUMNS.country] || '',
+      region: '',
+      competitors: '',
+      competitorsLive: '',
+      techDNA: '',
+      aiInitiatives: '',
+      outreachAngle: '',
+      emailSubject: '',
+      emailBody: '',
+      language: 'EN',
+      status: (DONE_STATUSES.has(rawStatus) ? rawStatus : 'sent') as EmailStatus,
+      assignedTo: row[SHEET_COLUMNS.assignedTo] || '',
+      sentAt,
+      messageId: row[SHEET_COLUMNS.messageId] || '',
+      threadId,
+      openCount: parseInt(row[SHEET_COLUMNS.openCount]) || 0,
+      firstOpenAt: row[SHEET_COLUMNS.firstOpenAt] || '',
+      repliedAt: row[SHEET_COLUMNS.repliedAt] || '',
+      bounceReason: row[SHEET_COLUMNS.bounceReason] || '',
+      weekAdded: row[SHEET_COLUMNS.weekAdded] || '',
+    });
+  }
+  return contacts;
+}
+
 // ─── Get all sent contacts (for reply/bounce polling) ────────────────────────
 
 export async function getSentContacts(
