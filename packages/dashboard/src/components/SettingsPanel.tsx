@@ -15,6 +15,8 @@ interface Props {
 const BLANK_TEMPLATE: Omit<EmailTemplate, 'id' | 'createdAt' | 'updatedAt'> = {
   name: 'New Template',
   senderName: '',
+  subjectEn: '',
+  subjectFr: '',
   hookEn: '',
   hookFr: '',
   ctaEn: '',
@@ -267,6 +269,8 @@ export default function SettingsPanel({ user, senders, getConnectUrl, disconnect
                 {[
                   { key: 'name', label: 'Template name', multiline: false },
                   { key: 'senderName', label: 'Sender name (used in signature)', multiline: false },
+                  { key: 'subjectEn', label: 'Subject — English (use {competitors}, {company}, {appWord})', multiline: false },
+                  { key: 'subjectFr', label: 'Subject — French', multiline: false },
                   { key: 'hookEn', label: 'Hook — English', multiline: true },
                   { key: 'hookFr', label: 'Hook — French', multiline: true },
                   { key: 'ctaEn', label: 'CTA — English', multiline: true },
