@@ -170,20 +170,50 @@ export default function CampaignWizard({
 
   // Step 3.5 — Template editor
   const [tplSenderName, setTplSenderName] = useState(user.name || user.email.split('@')[0]);
-  const [tplClosingEn, setTplClosingEn] = useState('Best');
-  const [tplClosingFr, setTplClosingFr] = useState('Cordialement');
-  const [tplHookEn, setTplHookEn] = useState(
-    "{competitors} just launched their ChatGPT {appWord}. Their services are now integrated and natively accessible to 900M+ ChatGPT users. This market is live since January 2026 and we think it could be a great opportunity for {company}. Is it something you're looking at?"
-  );
-  const [tplHookFr, setTplHookFr] = useState(
-    "{competitors} viennent de lancer leurs {appWord} ChatGPT. Leurs services sont désormais intégrés et nativement accessibles à plus de 900M d'utilisateurs ChatGPT. Ce marché est actif depuis janvier 2026 et nous pensons que c'est une réelle opportunité pour {company}. C'est quelque chose que vous regardez\u00a0?"
-  );
-  const [tplCtaEn, setTplCtaEn] = useState(
-    'Alpic is currently the first app developer in the world and the reference solution in the <a href="https://developers.openai.com/apps-sdk/deploy">OpenAI documentation</a>. Would be happy to give you more insights and explore relevance for {company} in a quick 15-minute talk.'
-  );
-  const [tplCtaFr, setTplCtaFr] = useState(
-    "Alpic est actuellement le premier développeur d'apps au monde et la solution de référence dans la <a href=\"https://developers.openai.com/apps-sdk/deploy\">documentation OpenAI</a>. Je serais ravi de vous donner plus de détails et d'explorer la pertinence pour {company} en 15 minutes."
-  );
+  const [tplClosingEn, setTplClosingEn] = useState(() => {
+    try {
+      const id = localStorage.getItem('alpic_active_template_id');
+      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.closingEn) return t.closingEn; }
+    } catch {}
+    return 'Best';
+  });
+  const [tplClosingFr, setTplClosingFr] = useState(() => {
+    try {
+      const id = localStorage.getItem('alpic_active_template_id');
+      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.closingFr) return t.closingFr; }
+    } catch {}
+    return 'Cordialement';
+  });
+  const [tplHookEn, setTplHookEn] = useState(() => {
+    try {
+      const id = localStorage.getItem('alpic_active_template_id');
+      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.hookEn) return t.hookEn; }
+    } catch {}
+    return "{competitors} just launched their ChatGPT {appWord}. Their services are now integrated and natively accessible to 900M+ ChatGPT users. This market is live since January 2026 and we think it could be a great opportunity for {company}. Is it something you're looking at?";
+  });
+  const [tplHookFr, setTplHookFr] = useState(() => {
+    try {
+      const id = localStorage.getItem('alpic_active_template_id');
+      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.hookFr) return t.hookFr; }
+    } catch {}
+    return "{competitors} viennent de lancer leurs {appWord} ChatGPT. Leurs services sont désormais intégrés et nativement accessibles à plus de 900M d'utilisateurs ChatGPT. Ce marché est actif depuis janvier 2026 et nous pensons que c'est une réelle opportunité pour {company}. C'est quelque chose que vous regardez\u00a0?";
+  });
+  const [tplCtaEn, setTplCtaEn] = useState(() => {
+    try {
+      const id = localStorage.getItem('alpic_active_template_id');
+      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.ctaEn) return t.ctaEn; }
+    } catch {}
+    return 'Alpic is currently the first app developer in the world and the reference solution in the <a href="https://developers.openai.com/apps-sdk/deploy">OpenAI documentation</a>. Would be happy to give you more insights and explore relevance for {company} in a quick 15-minute talk.';
+  });
+  const [tplCtaFr, setTplCtaFr] = useState(() => {
+    try {
+      const id = localStorage.getItem('alpic_active_template_id');
+      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.ctaFr) return t.ctaFr; }
+    } catch {}
+    return "Alpic est actuellement le premier développeur d'apps au monde et la solution de référence dans la <a href=\"https://developers.openai.com/apps-sdk/deploy\">documentation OpenAI</a>. Je serais ravi de vous donner plus de détails et d'explorer la pertinence pour {company} en 15 minutes.";
+  });
+  const [tplSubjectEn, setTplSubjectEn] = useState('');
+  const [tplSubjectFr, setTplSubjectFr] = useState('');
   const [tplPreviewLang, setTplPreviewLang] = useState<'EN' | 'FR'>('EN');
 
   // Step 4
@@ -315,8 +345,10 @@ export default function CampaignWizard({
   function applyTemplateAndGoToReview() {
     const overrides: Record<string, { subject: string; body: string }> = { ...emailOverrides };
     for (const c of finalContacts) {
+      const lang = (c.language || 'EN').toUpperCase() as 'EN' | 'FR';
+      const tplSubject = lang === 'FR' ? tplSubjectFr : tplSubjectEn;
       if (!overrides[c.id]) {
-        overrides[c.id] = { subject: c.subject, body: buildTplBody(c) };
+        overrides[c.id] = { subject: tplSubject || c.subject, body: buildTplBody(c) };
       } else {
         // Re-apply template body but keep any subject override
         overrides[c.id] = { subject: overrides[c.id].subject, body: buildTplBody(c) };
@@ -786,6 +818,24 @@ export default function CampaignWizard({
                       />
                     </div>
 
+                    {/* Subject */}
+                    <div>
+                      <div style={S.sectionLabel}>Subject line</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                        Leave blank to use the subject from the sheet.
+                      </div>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>English</div>
+                          <input value={tplSubjectEn} onChange={e => setTplSubjectEn(e.target.value)} style={S.editInput} placeholder="e.g. {company} could be available in ChatGPT" />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>French</div>
+                          <input value={tplSubjectFr} onChange={e => setTplSubjectFr(e.target.value)} style={S.editInput} placeholder="e.g. {company} pourrait être disponible dans ChatGPT" />
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Closing */}
                     <div>
                       <div style={S.sectionLabel}>Closing</div>
@@ -860,7 +910,7 @@ export default function CampaignWizard({
                   }}>
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
                       To: {tplPreviewContact.email}<br />
-                      Subject: {tplPreviewContact.subject}
+                      Subject: {(tplPreviewLang === 'FR' ? tplSubjectFr : tplSubjectEn) || tplPreviewContact.subject}
                     </div>
                     <div dangerouslySetInnerHTML={{ __html: buildTplBody({ ...tplPreviewContact, language: tplPreviewLang }) }} />
                   </div>

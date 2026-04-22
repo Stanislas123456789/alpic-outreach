@@ -11,6 +11,7 @@ import { useApi } from './hooks/useApi';
 import LoginPage from './components/LoginPage';
 import SourceModal from './components/SourceModal';
 import SenderPanel from './components/SenderPanel';
+import SettingsPanel from './components/SettingsPanel';
 import './App.css';
 
 const INDUSTRY_COLORS: Record<string, string> = {
@@ -128,7 +129,7 @@ export default function App() {
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
   const { contacts, loading, lastUpdated, refresh, repMetrics, industryMetrics, funnel, stats } = useAllSheets(sources, 30000);
   const error: string | null = null;
-  const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders' | 'settings'>('overview');
   const [showSources, setShowSources] = useState(false);
   const [showLogoMenu, setShowLogoMenu] = useState(false);
   const [pipelineStatusFilter, setPipelineStatusFilter] = useState<string>('all');
@@ -225,6 +226,7 @@ export default function App() {
                     { label: 'Reps', tab: 'reps' as const, icon: '👥' },
                     { label: 'Industries', tab: 'industries' as const, icon: '🏭' },
                     { label: 'Pipeline', tab: 'pipeline' as const, icon: '📋' },
+                    { label: 'Settings', tab: 'settings' as const, icon: '⚙️' },
                   ] as const).map(item => (
                     <button
                       key={item.tab}
@@ -290,6 +292,24 @@ export default function App() {
               + Sheet
             </button>
           </div>
+          {/* Sender health pill */}
+          {user?.email?.endsWith('@alpic.ai') && api.senders.length > 0 && (() => {
+            const connected = api.senders.filter(s => s.connected).length;
+            const total = api.senders.length;
+            const color = connected === 0 ? '#f87171' : connected < total ? '#f59e0b' : '#34d399';
+            return (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '4px 10px', borderRadius: 20,
+                background: `${color}18`, border: `1px solid ${color}44`,
+                fontSize: 11, fontWeight: 600, color,
+                flexShrink: 0,
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block' }} />
+                {connected === 0 ? 'No senders' : `${connected}/${total} senders`}
+              </div>
+            );
+          })()}
           <span className="last-updated">
             {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : ''}
           </span>
@@ -330,7 +350,7 @@ export default function App() {
 
       {/* Tabs */}
       <nav className="tabs">
-        {(['overview', 'reps', 'industries', 'pipeline'] as const).map(tab => (
+        {(['overview', 'reps', 'industries', 'pipeline', 'settings'] as const).map(tab => (
           <button
             key={tab}
             className={`tab ${activeTab === tab ? 'active' : ''}`}
@@ -343,6 +363,7 @@ export default function App() {
         {activeTab === 'senders' && (
           <button className="tab active">Campaign</button>
         )}
+
       </nav>
 
       {/* Tab Content */}
@@ -1049,6 +1070,19 @@ export default function App() {
               activeSheetId={activeSource.sheetId}
               activeSheetTab={activeSource.sheetTab}
               onManageSources={() => setShowSources(true)}
+            />
+          </div>
+        )}
+
+        {/* ── SETTINGS ── */}
+        {activeTab === 'settings' && user && (
+          <div className="tab-content">
+            <SettingsPanel
+              user={user}
+              senders={api.senders}
+              getConnectUrl={api.getConnectUrl}
+              disconnectSender={api.disconnectSender}
+              updateSenderLimit={api.updateSenderLimit}
             />
           </div>
         )}
