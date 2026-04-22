@@ -341,14 +341,27 @@ export default function CampaignWizard({
     return `<p>${greeting}</p>\n\n<p>${hook}</p>\n\n<p>${cta}</p>\n\n<p>${closing},<br>${tplSenderName}</p>`;
   }
 
+  // Substitute {competitors}, {company}, {appWord} in a subject template string
+  function fillSubject(rawSubject: string, c: PreviewContact): string {
+    const comps = c.competitors || 'Your competitors';
+    const compCount = comps.split(/[,/]/).filter(Boolean).length;
+    const appWord = compCount === 1 ? 'app' : 'apps';
+    return rawSubject
+      .replace(/{competitors}/g, comps)
+      .replace(/{company}/g, c.company || 'your company')
+      .replace(/{appWord}/g, appWord);
+  }
+
   // Apply template to all final contacts before entering Review
   function applyTemplateAndGoToReview() {
     const overrides: Record<string, { subject: string; body: string }> = { ...emailOverrides };
     for (const c of finalContacts) {
       const lang = (c.language || 'EN').toUpperCase() as 'EN' | 'FR';
       const tplSubject = lang === 'FR' ? tplSubjectFr : tplSubjectEn;
+      // Resolve variables in the subject template (e.g. {competitors} → actual names)
+      const resolvedSubject = tplSubject ? fillSubject(tplSubject, c) : c.subject;
       if (!overrides[c.id]) {
-        overrides[c.id] = { subject: tplSubject || c.subject, body: buildTplBody(c) };
+        overrides[c.id] = { subject: resolvedSubject, body: buildTplBody(c) };
       } else {
         // Re-apply template body but keep any subject override
         overrides[c.id] = { subject: overrides[c.id].subject, body: buildTplBody(c) };
@@ -910,7 +923,7 @@ export default function CampaignWizard({
                   }}>
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
                       To: {tplPreviewContact.email}<br />
-                      Subject: {(tplPreviewLang === 'FR' ? tplSubjectFr : tplSubjectEn) || tplPreviewContact.subject}
+                      Subject: {(() => { const raw = (tplPreviewLang === 'FR' ? tplSubjectFr : tplSubjectEn) || tplPreviewContact.subject; return raw ? fillSubject(raw, tplPreviewContact) : raw; })()}
                     </div>
                     <div dangerouslySetInnerHTML={{ __html: buildTplBody({ ...tplPreviewContact, language: tplPreviewLang }) }} />
                   </div>

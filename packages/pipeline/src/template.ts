@@ -1,6 +1,7 @@
 // ============================================
 // EMAIL TEMPLATE ENGINE
 // ============================================
+import crypto from 'crypto';
 import { Contact, Language } from './types';
 
 const TRACKING_BASE = (process.env.TRACKING_BASE_URL || 'https://track.alpic.ai').replace(/\/$/, '');
@@ -28,6 +29,16 @@ function formatCompetitors(competitors: string[], language: Language): string {
   return language === 'FR' ? `${rest} et ${last}` : `${rest} and ${last}`;
 }
 
+// ─── Unsubscribe footer ───────────────────────────────────────────────────────
+
+export function buildUnsubscribeFooter(email: string, language: Language = 'EN'): string {
+  const secret = process.env.OPTOUT_SECRET || 'alpic-optout-secret';
+  const sig = crypto.createHmac('sha256', secret).update(email).digest('hex');
+  const url = `${TRACKING_BASE}/api/optout?email=${encodeURIComponent(email)}&sig=${sig}`;
+  const label = language === 'FR' ? 'Se désabonner' : 'Unsubscribe';
+  return `\n<p style="font-size:11px;color:#aaa;margin-top:24px;"><a href="${url}" style="color:#aaa;">${label}</a></p>`;
+}
+
 // ─── Subject line ─────────────────────────────────────────────────────────────
 
 export function buildSubject(contact: Contact): string {
@@ -53,6 +64,8 @@ export function buildBody(contact: Contact): string {
   const trackingPixel = `${TRACKING_BASE}/pixel/${encodeURIComponent(contact.id)}?row=${contact.rowIndex}&sheetId=${encodeURIComponent(sheetId)}&tab=${encodeURIComponent(sheetTab)}`;
   const appWord = comps.length === 1 ? 'app' : 'apps';
 
+  const unsubFooter = buildUnsubscribeFooter(contact.email, contact.language as Language);
+
   if (contact.language === 'FR') {
     return `
 <p>Bonjour ${contact.firstName},</p>
@@ -63,7 +76,7 @@ export function buildBody(contact: Contact): string {
 
 <p>Cordialement,<br>Stanislas Michel</p>
 
-<img src="${trackingPixel}" width="1" height="1" alt="" style="display:none"/>`.trim();
+<img src="${trackingPixel}" width="1" height="1" alt="" style="display:none"/>${unsubFooter}`.trim();
   }
 
   // English (default)
@@ -76,7 +89,7 @@ export function buildBody(contact: Contact): string {
 
 <p>Best,<br>Stanislas Michel</p>
 
-<img src="${trackingPixel}" width="1" height="1" alt="" style="display:none"/>`.trim();
+<img src="${trackingPixel}" width="1" height="1" alt="" style="display:none"/>${unsubFooter}`.trim();
 }
 
 // ─── Preview (for dry run logging) ───────────────────────────────────────────

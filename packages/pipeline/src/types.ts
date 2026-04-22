@@ -70,6 +70,12 @@ export interface Contact {
   firstOpenAt?: string;
   repliedAt?: string;
   bounceReason?: string;
+  // Follow-up touches
+  touch2SentAt?: string;
+  touch2MessageId?: string;
+  touch3SentAt?: string;
+  touch3MessageId?: string;
+  optedOut?: boolean;
 }
 
 // Sender account config
@@ -148,4 +154,10 @@ export const SHEET_COLUMNS = {
   firstOpenAt: 28,      // AC
   repliedAt: 29,        // AD
   bounceReason: 30,     // AE
+  // Follow-up zone (AF–AJ, cols 31–35)
+  touch2SentAt: 31,     // AF
+  touch2MessageId: 32,  // AG
+  touch3SentAt: 33,     // AH
+  touch3MessageId: 34,  // AI
+  optedOut: 35,         // AJ
 } as const;

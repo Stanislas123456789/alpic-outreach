@@ -158,6 +158,61 @@ export async function sendEmail(
   }
 }
 
+// ─── Send a follow-up in the same Gmail thread ───────────────────────────────
+
+export async function sendFollowUp(
+  sender: Sender,
+  to: string,
+  subject: string,
+  htmlBody: string,
+  threadId: string,
+  originalMessageId: string,
+  cc?: string,
+): Promise<SendResult> {
+  try {
+    const auth = getOAuthClient(sender);
+    const gmail = google.gmail({ version: 'v1', auth });
+
+    const reSubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+    const messageParts = [
+      `From: ${sender.name} <${sender.email}>`,
+      `To: ${to}`,
+      ...(cc ? [`Cc: ${cc}`] : []),
+      `Subject: ${reSubject}`,
+      `In-Reply-To: <${originalMessageId}>`,
+      `References: <${originalMessageId}>`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=UTF-8',
+      '',
+      htmlBody,
+    ];
+
+    const rawMessage = Buffer.from(messageParts.join('\r\n'))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const res = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: { raw: rawMessage, threadId },
+    });
+
+    sender.sentToday++;
+
+    return {
+      success: true,
+      messageId: res.data.id || undefined,
+      threadId: res.data.threadId || undefined,
+    };
+  } catch (err: any) {
+    const errorMsg = err?.message || String(err);
+    const bounced = errorMsg.includes('550') || errorMsg.includes('554') ||
+      (errorMsg.includes('invalid') && !errorMsg.includes('invalid_grant'));
+    return { success: false, error: errorMsg, bounced };
+  }
+}
+
 // ─── Create a draft (draft mode) ─────────────────────────────────────────────
 
 export async function createDraft(
