@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { AuthUser } from '../hooks/useAuth';
-import type { SenderStatus, PipelineStatus, PreviewContact, PipelineProgress, Campaign } from '../hooks/useApi';
+import type { SenderStatus, PipelineStatus, PreviewContact, PipelineProgress, Campaign, ProgressEvent } from '../hooks/useApi';
 import { useCampaigns } from '../hooks/useApi';
 import type { SheetSource } from '../hooks/useConfig';
 import CampaignWizard from './CampaignWizard';
@@ -42,17 +42,220 @@ function formatCompletedTime(isoString: string | null): string {
   return new Date(isoString).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+// ── Campaign stat helpers ────────────────────────────────────────────────────
+
+interface CampaignStats {
+  sent: number;
+  failed: number;
+  invalid: number;
+  skipped: number;
+  total: number;
+  completedAt: string | null;
+  sentContacts: ProgressEvent[];
+  failedContacts: ProgressEvent[];
+  invalidContacts: ProgressEvent[];
+}
+
+function getCampaignStats(campaign: Campaign): CampaignStats {
+  const sentContacts = campaign.log.filter(e => e.type === 'sent');
+  const failedContacts = campaign.log.filter(e => e.type === 'failed');
+  const invalidContacts = campaign.log.filter(e => e.type === 'invalid');
+  const skippedEvts = campaign.log.filter(e => e.type === 'skipped');
+  const doneEvt = [...campaign.log].reverse().find(e => e.type === 'done');
+  return {
+    sent: campaign.sent || sentContacts.length,
+    failed: failedContacts.length,
+    invalid: invalidContacts.length,
+    skipped: skippedEvts.length,
+    total: campaign.total || (sentContacts.length + failedContacts.length + invalidContacts.length),
+    completedAt: doneEvt?.timestamp || null,
+    sentContacts,
+    failedContacts,
+    invalidContacts,
+  };
+}
+
 // ── Campaign card ─────────────────────────────────────────────────────────────
+
+// ── Campaign details modal ────────────────────────────────────────────────────
+
+function CampaignDetailsModal({
+  campaign,
+  onClose,
+}: {
+  campaign: Campaign;
+  onClose: () => void;
+}) {
+  const stats = getCampaignStats(campaign);
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <div
+        style={{
+          background: 'var(--card)',
+          border: '1px solid var(--border)',
+          borderRadius: 16,
+          width: '100%',
+          maxWidth: 640,
+          maxHeight: '85vh',
+          display: 'flex',
+          flexDirection: 'column' as const,
+          overflow: 'hidden',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Modal header */}
+        <div style={{
+          padding: '20px 24px 16px',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 12,
+        }}>
+          <div style={{ flex: 1 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: '0 0 6px' }}>
+              {campaign.sheetTab || 'Campaign'} — Contacts
+            </h2>
+            <div style={{ display: 'flex', gap: 14, fontSize: 12 }}>
+              <span style={{ color: '#6366f1', fontWeight: 600 }}>{stats.sent} sent</span>
+              {stats.failed > 0 && <span style={{ color: '#f87171', fontWeight: 600 }}>{stats.failed} failed</span>}
+              {stats.invalid > 0 && <span style={{ color: '#fb923c', fontWeight: 600 }}>{stats.invalid} invalid</span>}
+              {stats.total > 0 && <span style={{ color: 'var(--text-secondary)' }}>{stats.total} total</span>}
+            </div>
+          </div>
+          <button style={styles.closeBtn} onClick={onClose}>✕</button>
+        </div>
+
+        {/* Modal body */}
+        <div style={{ overflow: 'auto', padding: '16px 24px', display: 'flex', flexDirection: 'column' as const, gap: 20 }}>
+
+          {/* Sent */}
+          {stats.sentContacts.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#34d399', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 8 }}>
+                Sent ({stats.sentContacts.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                {stats.sentContacts.map((evt, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 10px',
+                    background: 'var(--bg)',
+                    borderRadius: 7,
+                    border: '1px solid var(--border)',
+                  }}>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%',
+                      background: '#6366f118', color: '#6366f1',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, flexShrink: 0,
+                    }}>
+                      {(evt.firstName || evt.email || '?')[0].toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                        {[evt.firstName, evt.company].filter(Boolean).join(' · ')}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                        {evt.email}
+                      </div>
+                    </div>
+                    {evt.via && (
+                      <div style={{ fontSize: 10, color: 'var(--text-secondary)', flexShrink: 0, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 6px' }}>
+                        via {evt.via.split('@')[0]}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: 'var(--text-secondary)', flexShrink: 0 }}>
+                      {new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Failed */}
+          {stats.failedContacts.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#f87171', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 8 }}>
+                Failed ({stats.failedContacts.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                {stats.failedContacts.map((evt, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 10px',
+                    background: '#f871710a',
+                    borderRadius: 7,
+                    border: '1px solid #f8717122',
+                  }}>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%',
+                      background: '#f8717118', color: '#f87171',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, flexShrink: 0,
+                    }}>
+                      {(evt.firstName || evt.email || '?')[0].toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                        {evt.firstName}{evt.email ? ` — ${evt.email}` : ''}
+                      </div>
+                      {evt.error && (
+                        <div style={{ fontSize: 11, color: '#f87171', marginTop: 1 }}>{evt.error}</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Invalid */}
+          {stats.invalidContacts.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#fb923c', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 8 }}>
+                Invalid Email ({stats.invalidContacts.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                {stats.invalidContacts.map((evt, i) => (
+                  <div key={i} style={{
+                    padding: '8px 10px',
+                    background: '#fb923c0a',
+                    borderRadius: 7,
+                    border: '1px solid #fb923c22',
+                    fontSize: 12, color: 'var(--text)',
+                  }}>
+                    {evt.firstName}{evt.email ? ` — ` : ''}<span style={{ color: '#fb923c' }}>{evt.email}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {stats.sent === 0 && stats.failed === 0 && stats.invalid === 0 && (
+            <div style={{ textAlign: 'center' as const, color: 'var(--text-secondary)', fontSize: 13, padding: '24px 0' }}>
+              No contact data recorded for this campaign.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function CampaignCard({
   campaign,
   onCancel,
   onViewLive,
+  onViewDetails,
 }: {
   campaign: Campaign;
   onCancel: (id: string) => void;
   onViewLive: () => void;
+  onViewDetails: (c: Campaign) => void;
 }) {
+  const stats = getCampaignStats(campaign);
+
   const [relativeTime, setRelativeTime] = useState(() =>
     campaign.scheduledAt ? formatRelativeTime(campaign.scheduledAt) : ''
   );
@@ -65,80 +268,53 @@ function CampaignCard({
     return () => clearInterval(interval);
   }, [campaign.status, campaign.scheduledAt]);
 
-  const statusBadge = {
-    scheduled: { icon: '🟡', label: 'Scheduled', color: '#f59e0b', bg: '#f59e0b22' },
-    running: { icon: '🟢', label: 'Running', color: '#34d399', bg: '#34d39922' },
-    done: { icon: '✅', label: 'Done', color: '#34d399', bg: '#34d39922' },
-    error: { icon: '❌', label: 'Error', color: '#f87171', bg: '#f8717122' },
-    cancelled: { icon: '⛔', label: 'Cancelled', color: '#94a3b8', bg: '#94a3b822' },
+  const badge = {
+    scheduled: { color: '#f59e0b', bg: '#f59e0b18', label: 'Scheduled', pulse: false },
+    running:   { color: '#34d399', bg: '#34d39918', label: 'Running',   pulse: true  },
+    done:      { color: '#34d399', bg: '#34d39918', label: 'Done',      pulse: false },
+    error:     { color: '#f87171', bg: '#f8717118', label: 'Error',     pulse: false },
+    cancelled: { color: '#94a3b8', bg: '#94a3b818', label: 'Cancelled', pulse: false },
   }[campaign.status];
+
+  const isFinished = campaign.status === 'done' || campaign.status === 'error';
+  const progressPct = stats.total > 0 ? Math.round((stats.sent / stats.total) * 100) : 0;
+  const displayTime = stats.completedAt || campaign.startedAt;
 
   return (
     <div style={{
       background: 'var(--bg)',
       border: '1px solid var(--border)',
       borderRadius: 10,
-      padding: '12px 16px',
+      padding: '14px 16px',
       display: 'flex',
-      alignItems: 'center',
-      gap: 14,
+      flexDirection: 'column' as const,
+      gap: 8,
     }}>
-      {/* Sheet tab name */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-            {campaign.sheetTab || 'Default Sheet'}
-          </span>
-          <span style={{
-            background: statusBadge.bg,
-            color: statusBadge.color,
-            borderRadius: 5,
-            padding: '2px 7px',
-            fontSize: 11,
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-          }}>
-            {campaign.status === 'running' && (
-              <span style={{
-                width: 6, height: 6, borderRadius: '50%',
-                background: '#34d399',
-                display: 'inline-block',
-                animation: 'pulse 1.5s ease-in-out infinite',
-              }} />
-            )}
-            {statusBadge.icon} {statusBadge.label}
-          </span>
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-          {campaign.status === 'running' && (
-            <span>{campaign.sent}/{campaign.total} sent</span>
+      {/* Row 1: name + badge + actions */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{
+          fontSize: 13, fontWeight: 600, color: 'var(--text)',
+          flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
+        }}>
+          {campaign.sheetTab || 'Campaign'}
+        </span>
+        <span style={{
+          background: badge.bg, color: badge.color,
+          borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
+        }}>
+          {badge.pulse && (
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: badge.color, display: 'inline-block',
+              animation: 'pulse 1.5s ease-in-out infinite',
+            }} />
           )}
-          {campaign.status === 'scheduled' && campaign.scheduledAt && (
-            <span>{relativeTime}</span>
-          )}
-          {campaign.status === 'done' && campaign.startedAt && (
-            <span>Completed {formatCompletedTime(campaign.startedAt)}</span>
-          )}
-          {campaign.status === 'error' && campaign.startedAt && (
-            <span>Failed {formatCompletedTime(campaign.startedAt)}</span>
-          )}
-          {campaign.status === 'cancelled' && (
-            <span>Cancelled</span>
-          )}
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          {badge.label}
+        </span>
+        {/* Actions */}
         {campaign.status === 'running' && (
-          <button
-            style={styles.campaignBtn}
-            onClick={onViewLive}
-          >
-            View Live
-          </button>
+          <button style={styles.campaignBtn} onClick={onViewLive}>View Live</button>
         )}
         {campaign.status === 'scheduled' && (
           <button
@@ -148,7 +324,68 @@ function CampaignCard({
             Cancel
           </button>
         )}
+        {isFinished && (stats.sent > 0 || stats.failed > 0) && (
+          <button style={styles.campaignBtn} onClick={() => onViewDetails(campaign)}>
+            Details →
+          </button>
+        )}
       </div>
+
+      {/* Row 2: running progress bar */}
+      {campaign.status === 'running' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11, color: 'var(--text-secondary)' }}>
+            <span>{stats.sent} / {stats.total > 0 ? stats.total : '?'} sent</span>
+            {stats.total > 0 && <span>{progressPct}%</span>}
+          </div>
+          <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${stats.total > 0 ? progressPct : 0}%`,
+              background: '#34d399',
+              borderRadius: 2,
+              transition: 'width 0.5s',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* Row 3: finished stats */}
+      {isFinished && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' as const }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#6366f1' }}>{stats.sent}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>sent</span>
+          </div>
+          {stats.failed > 0 && (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#f87171' }}>{stats.failed}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>failed</span>
+            </div>
+          )}
+          {stats.total > 0 && (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{stats.total}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>total</span>
+            </div>
+          )}
+          {displayTime && (
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0 }}>
+              {campaign.status === 'done' ? 'Completed' : 'Failed'} {formatCompletedTime(displayTime)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Scheduled countdown */}
+      {campaign.status === 'scheduled' && campaign.scheduledAt && (
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{relativeTime}</div>
+      )}
+
+      {/* Error message */}
+      {campaign.status === 'error' && campaign.error && (
+        <div style={{ fontSize: 11, color: '#f87171', fontStyle: 'italic' as const }}>{campaign.error}</div>
+      )}
     </div>
   );
 }
@@ -191,6 +428,8 @@ export default function SenderPanel({
     if (id) localStorage.setItem('activeCampaignId', id);
     else localStorage.removeItem('activeCampaignId');
   }
+
+  const [detailCampaign, setDetailCampaign] = useState<Campaign | null>(null);
 
   const { campaigns, cancelCampaign } = useCampaigns(user);
 
@@ -285,6 +524,7 @@ export default function SenderPanel({
                   setActiveCampaignId(c.id);
                   setShowLive(true);
                 }}
+                onViewDetails={setDetailCampaign}
               />
             ))}
           </div>
@@ -551,6 +791,14 @@ export default function SenderPanel({
             return { campaignId };
           }}
           onClose={() => setShowPreview(false)}
+        />
+      )}
+
+      {/* Campaign details modal */}
+      {detailCampaign && (
+        <CampaignDetailsModal
+          campaign={detailCampaign}
+          onClose={() => setDetailCampaign(null)}
         />
       )}
     </div>

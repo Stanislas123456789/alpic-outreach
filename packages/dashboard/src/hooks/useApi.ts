@@ -64,6 +64,7 @@ export interface PipelineStatus {
 
 export interface Campaign {
   id: string;
+  name?: string;
   sheetId: string;
   sheetTab: string;
   startedAt: string | null;
@@ -208,6 +209,15 @@ export function useApi(user: AuthUser | null) {
     fetchSenders();
   }, [user?.email]);
 
+  const updateSenderLimit = useCallback(async (email: string, dailyLimit: number): Promise<void> => {
+    await fetch(`${API_URL}/api/senders/${encodeURIComponent(email)}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ dailyLimit }),
+    });
+    fetchSenders();
+  }, [user?.email]);
+
   // Load on mount and when user changes
   useEffect(() => {
     if (user?.email?.endsWith('@alpic.ai')) {
@@ -228,6 +238,7 @@ export function useApi(user: AuthUser | null) {
     pollProgress,
     getConnectUrl,
     disconnectSender,
+    updateSenderLimit,
     refresh: () => { fetchSenders(); fetchPipelineStatus(); },
   };
 }

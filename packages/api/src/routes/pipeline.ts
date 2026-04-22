@@ -24,6 +24,7 @@ export interface ProgressEvent {
 
 interface Campaign {
   id: string;
+  name?: string;
   sheetId: string;
   sheetTab: string;
   startedAt: string | null;
@@ -227,8 +228,10 @@ router.post('/run', async (req: Request, res: Response) => {
   }
 
   const campaignId = Date.now().toString(36);
+  const name: string | undefined = req.body?.name;
   const campaign: Campaign = {
     id: campaignId,
+    name,
     sheetId,
     sheetTab,
     startedAt: null,
@@ -313,6 +316,14 @@ router.delete('/campaigns/:id', (req: Request, res: Response) => {
   c.status = 'cancelled';
   saveCampaigns(campaigns);
   res.json({ ok: true });
+});
+
+// GET /api/pipeline/campaigns/:id — get single campaign with full log
+router.get('/campaigns/:id', (req: Request, res: Response) => {
+  const c = campaigns.get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Campaign not found' });
+  const { scheduledTimer, ...rest } = c;
+  res.json(rest);
 });
 
 // GET /api/pipeline/preview?sheetId=xxx&tab=TRAVEL&limit=5&includeSent=true
