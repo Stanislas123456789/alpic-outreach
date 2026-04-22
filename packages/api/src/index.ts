@@ -16,7 +16,7 @@ import {
   syncSentCounts,
   updateRefreshToken,
 } from './senders';
-import { DASHBOARD_URL, API_PORT } from './auth';
+import { DASHBOARD_URL, API_PORT, createOAuthClient } from './auth';
 
 // Re-export for external use
 export { DASHBOARD_URL, API_PORT };
@@ -255,6 +255,33 @@ async function startPipelineCron() {
         .catch(err => console.error(`[cron] Reply check error (${sheetTab}):`, err));
       await checkBounces(sheetId, sheetTab)
         .catch(err => console.error(`[cron] Bounce check error (${sheetTab}):`, err));
+    }
+  });
+
+  // Proactive token refresh every 30 min — keeps tokens warm so mid-campaign expiry doesn't silently drop sends
+  cron.schedule('*/30 * * * *', async () => {
+    const senders = readSenders().filter(s => !!s.refreshToken);
+    if (senders.length === 0) return;
+    console.log(`[token-refresh] Proactively refreshing ${senders.length} sender token(s)…`);
+    for (const sender of senders) {
+      try {
+        const client = createOAuthClient();
+        client.setCredentials({ refresh_token: sender.refreshToken });
+        const { credentials } = await client.refreshAccessToken();
+        if (credentials.refresh_token && credentials.refresh_token !== sender.refreshToken) {
+          updateRefreshToken(sender.email, credentials.refresh_token);
+          console.log(`[token-refresh] ✓ Token rotated for ${sender.email}`);
+        } else {
+          console.log(`[token-refresh] ✓ Token valid for ${sender.email}`);
+        }
+      } catch (err: any) {
+        const isRevoked = /invalid_grant|Token has been expired or revoked/i.test(err.message || '');
+        if (isRevoked) {
+          console.warn(`[token-refresh] ⚠ Token REVOKED for ${sender.email} — manual reconnect needed`);
+        } else {
+          console.error(`[token-refresh] Transient error for ${sender.email}:`, err.message);
+        }
+      }
     }
   });
 

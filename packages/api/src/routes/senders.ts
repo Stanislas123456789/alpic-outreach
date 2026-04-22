@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
+import { google } from 'googleapis';
 import { readSenders, upsertSender, writeSenders } from '../senders';
-import { generateAuthUrl, exchangeCode, DASHBOARD_URL } from '../auth';
+import { generateAuthUrl, exchangeCode, DASHBOARD_URL, createOAuthClient } from '../auth';
 
 const router = Router();
 
@@ -79,6 +80,65 @@ router.post('/seed', (req: Request, res: Response) => {
   }
   writeSenders(senders);
   res.json({ ok: true, count: senders.length });
+});
+
+// GET /api/senders/health — verify each sender's token is still valid
+router.get('/health', async (_req: Request, res: Response) => {
+  const senders = readSenders();
+  const results = await Promise.all(
+    senders.map(async sender => {
+      if (!sender.refreshToken) {
+        return { email: sender.email, name: sender.name, status: 'disconnected' as const };
+      }
+      try {
+        const client = createOAuthClient();
+        client.setCredentials({ refresh_token: sender.refreshToken });
+        const gmail = google.gmail({ version: 'v1', auth: client });
+        await gmail.users.getProfile({ userId: 'me' });
+        return { email: sender.email, name: sender.name, status: 'ok' as const };
+      } catch (err: any) {
+        const msg: string = err.message || '';
+        const isInvalidGrant = /invalid_grant/i.test(msg);
+        return {
+          email: sender.email,
+          name: sender.name,
+          status: 'error' as const,
+          reason: msg,
+          ...(isInvalidGrant ? { needsReconnect: true } : {}),
+        };
+      }
+    })
+  );
+  const ok = results.every(r => r.status === 'ok');
+  res.json({ ok, senders: results });
+});
+
+// PATCH /api/senders/:email — update sender settings (e.g. dailyLimit)
+router.patch('/:email', (req: Request, res: Response) => {
+  const { email } = req.params;
+  const { dailyLimit } = req.body || {};
+
+  if (dailyLimit !== undefined) {
+    const limit = Number(dailyLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 2000) {
+      res.status(400).json({ error: 'dailyLimit must be an integer between 1 and 2000' });
+      return;
+    }
+  }
+
+  const senders = readSenders();
+  const idx = senders.findIndex(s => s.email === email);
+  if (idx < 0) {
+    res.status(404).json({ error: 'Sender not found' });
+    return;
+  }
+
+  if (dailyLimit !== undefined) {
+    senders[idx].dailyLimit = Number(dailyLimit);
+  }
+
+  writeSenders(senders);
+  res.json({ ok: true, sender: { email: senders[idx].email, dailyLimit: senders[idx].dailyLimit } });
 });
 
 // DELETE /api/senders/:email — disconnect a sender (clears refresh token)
