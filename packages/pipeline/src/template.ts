@@ -54,14 +54,25 @@ export function buildSubject(contact: Contact): string {
     : `${compStr} just launched their ChatGPT apps`;
 }
 
+// ─── Tracking pixel + unsubscribe snippet ────────────────────────────────────
+// Appended to EVERY outgoing email — both template-generated and pre-filled bodies.
+
+export function buildTrackingSnippet(contact: Contact, sheetId?: string, sheetTab?: string): string {
+  const sid = sheetId || process.env.GOOGLE_SHEET_ID || '';
+  const tab = sheetTab || process.env.GOOGLE_SHEET_TAB || 'Master Table';
+  const trackingPixel = `${TRACKING_BASE}/pixel/${encodeURIComponent(contact.id)}?row=${contact.rowIndex}&sheetId=${encodeURIComponent(sid)}&tab=${encodeURIComponent(tab)}`;
+  const unsubFooter = buildUnsubscribeFooter(contact.email, contact.language as Language);
+  return `\n<img src="${trackingPixel}" width="1" height="1" alt="" style="display:none"/>${unsubFooter}`;
+}
+
 // ─── HTML body ────────────────────────────────────────────────────────────────
 
-export function buildBody(contact: Contact): string {
+export function buildBody(contact: Contact, sheetId?: string, sheetTab?: string): string {
   const comps = parseCompetitors(contact.competitors);
   const compStr = formatCompetitors(comps, contact.language);
-  const sheetId = process.env.GOOGLE_SHEET_ID || '';
-  const sheetTab = process.env.GOOGLE_SHEET_TAB || 'Master Table';
-  const trackingPixel = `${TRACKING_BASE}/pixel/${encodeURIComponent(contact.id)}?row=${contact.rowIndex}&sheetId=${encodeURIComponent(sheetId)}&tab=${encodeURIComponent(sheetTab)}`;
+  const sid = sheetId || process.env.GOOGLE_SHEET_ID || '';
+  const tab = sheetTab || process.env.GOOGLE_SHEET_TAB || 'Master Table';
+  const trackingPixel = `${TRACKING_BASE}/pixel/${encodeURIComponent(contact.id)}?row=${contact.rowIndex}&sheetId=${encodeURIComponent(sid)}&tab=${encodeURIComponent(tab)}`;
   const appWord = comps.length === 1 ? 'app' : 'apps';
 
   const unsubFooter = buildUnsubscribeFooter(contact.email, contact.language as Language);

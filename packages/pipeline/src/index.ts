@@ -9,7 +9,7 @@ dotenv.config();
 
 import { getPendingContacts, updateContactStatus, ensureTrackingHeaders } from './sheets';
 import { validateEmail } from './validator';
-import { buildSubject, buildBody, previewEmail } from './template';
+import { buildSubject, buildBody, buildTrackingSnippet, previewEmail } from './template';
 import { pickSender, sendEmail, createDraft, resetDailyCounters, getSendStats } from './gmail';
 import { checkReplies, checkBounces } from './tracker';
 import { Contact } from './types';
@@ -129,7 +129,11 @@ async function processContact(
   const preSubject = override?.subject ?? (isTrackingGarbage(contact.emailSubject) ? undefined : contact.emailSubject);
   const preBody   = override?.body   ?? (isTrackingGarbage(contact.emailBody)    ? undefined : contact.emailBody);
   const subject = preSubject || buildSubject(contact);
-  const body    = preBody    || buildBody(contact);
+  // buildBody already includes tracking pixel + unsub footer.
+  // For pre-filled bodies we must append them — otherwise opens are never tracked.
+  const body    = preBody
+    ? preBody + buildTrackingSnippet(contact, sheetId, sheetTab)
+    : buildBody(contact, sheetId, sheetTab);
 
   // 5. Dry run preview
   if (DRY_RUN) {
