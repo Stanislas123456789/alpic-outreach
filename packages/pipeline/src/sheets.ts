@@ -263,7 +263,7 @@ export async function getSentContacts(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: `${a1Tab(sheetTab)}!A2:AE`,
+    range: `${a1Tab(sheetTab)}!A2:AJ`,  // extended to include follow-up columns
   });
 
   const rows = res.data.values || [];
@@ -297,10 +297,73 @@ export async function getSentContacts(
       openCount: parseInt(row[SHEET_COLUMNS.openCount]) || 0,
       firstOpenAt: row[SHEET_COLUMNS.firstOpenAt] || '',
       repliedAt: row[SHEET_COLUMNS.repliedAt] || '',
+      touch2SentAt: row[SHEET_COLUMNS.touch2SentAt] || '',
+      touch2MessageId: row[SHEET_COLUMNS.touch2MessageId] || '',
+      touch3SentAt: row[SHEET_COLUMNS.touch3SentAt] || '',
+      touch3MessageId: row[SHEET_COLUMNS.touch3MessageId] || '',
+      optedOut: (row[SHEET_COLUMNS.optedOut] || '').toString().toUpperCase() === 'TRUE',
     });
   }
 
   return contacts;
+}
+
+// ─── Update follow-up touch tracking ─────────────────────────────────────────
+
+export async function updateTouchTracking(
+  rowIndex: number,
+  touch: 2 | 3,
+  data: { sentAt: string; messageId: string },
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<void> {
+  const sheets = getSheetsClient();
+  const colSentAt = touch === 2 ? 'AF' : 'AH';
+  const colMsgId  = touch === 2 ? 'AG' : 'AI';
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId,
+    requestBody: {
+      valueInputOption: 'RAW',
+      data: [
+        { range: `${a1Tab(sheetTab)}!${colSentAt}${rowIndex}`, values: [[data.sentAt]] },
+        { range: `${a1Tab(sheetTab)}!${colMsgId}${rowIndex}`, values: [[data.messageId]] },
+      ],
+    },
+  });
+}
+
+// ─── Mark contact as opted out ───────────────────────────────────────────────
+
+export async function markOptedOut(
+  rowIndex: number,
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<void> {
+  const sheets = getSheetsClient();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `${a1Tab(sheetTab)}!AJ${rowIndex}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [['TRUE']] },
+  });
+}
+
+export async function markOptedOutByEmail(
+  email: string,
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<boolean> {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${a1Tab(sheetTab)}!H2:H`,
+  });
+  const rows = res.data.values || [];
+  const idx = rows.findIndex(r => (r[0] || '').toLowerCase() === email.toLowerCase());
+  if (idx === -1) return false;
+  await markOptedOut(idx + 2, sheetId, sheetTab);
+  return true;
 }
 
 // ─── Update a contact row after sending ──────────────────────────────────────

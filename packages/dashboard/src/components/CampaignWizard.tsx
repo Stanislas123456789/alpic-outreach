@@ -18,6 +18,14 @@ interface LaunchOpts {
   speedMode: SpeedMode;
   draftMode: boolean;
   senderEmail: string;
+  followUp?: {
+    enabled: boolean;
+    delayDays: number;
+    subjectEn: string;
+    subjectFr: string;
+    bodyEn: string;
+    bodyFr: string;
+  };
 }
 
 interface Props {
@@ -214,6 +222,12 @@ export default function CampaignWizard({
   });
   const [tplSubjectEn, setTplSubjectEn] = useState('');
   const [tplSubjectFr, setTplSubjectFr] = useState('');
+  const [followUpEnabled, setFollowUpEnabled] = useState(false);
+  const [followUpDelayDays, setFollowUpDelayDays] = useState(4);
+  const [followUpSubjectEn, setFollowUpSubjectEn] = useState('');
+  const [followUpSubjectFr, setFollowUpSubjectFr] = useState('');
+  const [followUpBodyEn, setFollowUpBodyEn] = useState('Just following up on my message below — is this something {company} could explore?');
+  const [followUpBodyFr, setFollowUpBodyFr] = useState('Je reviens vers vous suite à mon message ci-dessous — est-ce quelque chose que {company} pourrait explorer\u00a0?');
   const [tplPreviewLang, setTplPreviewLang] = useState<'EN' | 'FR'>('EN');
 
   // Step 4
@@ -402,6 +416,14 @@ export default function CampaignWizard({
         speedMode,
         draftMode,
         senderEmail,
+        followUp: followUpEnabled ? {
+          enabled: true,
+          delayDays: followUpDelayDays,
+          subjectEn: followUpSubjectEn,
+          subjectFr: followUpSubjectFr,
+          bodyEn: followUpBodyEn,
+          bodyFr: followUpBodyFr,
+        } : undefined,
       });
       setActiveCampaignId(result?.campaignId);
       setStep('live');
@@ -897,6 +919,60 @@ export default function CampaignWizard({
                           <textarea value={tplCtaFr} onChange={e => setTplCtaFr(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
                         </div>
                       </div>
+                    </div>
+
+                    {/* Follow-up */}
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <div>
+                          <div style={S.sectionLabel}>Follow-up sequence</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                            Automatically send a follow-up in the same thread if no reply.
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setFollowUpEnabled(p => !p)}
+                          style={{
+                            padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                            border: `1px solid ${followUpEnabled ? 'var(--accent)' : 'var(--border)'}`,
+                            background: followUpEnabled ? 'var(--accent)' : 'none',
+                            color: followUpEnabled ? 'white' : 'var(--text-secondary)',
+                            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", flexShrink: 0,
+                          }}
+                        >
+                          {followUpEnabled ? 'Enabled' : 'Disabled'}
+                        </button>
+                      </div>
+                      {followUpEnabled && (
+                        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Send after</span>
+                            <input
+                              type="number" min={1} max={30}
+                              value={followUpDelayDays}
+                              onChange={e => setFollowUpDelayDays(Number(e.target.value))}
+                              style={{ ...S.editInput, width: 56, textAlign: 'center' as const }}
+                            />
+                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>days without reply</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Subject (English) — leave blank to reuse original</div>
+                            <input value={followUpSubjectEn} onChange={e => setFollowUpSubjectEn(e.target.value)} style={S.editInput} placeholder="Re: {competitors} on ChatGPT" />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Subject (French)</div>
+                            <input value={followUpSubjectFr} onChange={e => setFollowUpSubjectFr(e.target.value)} style={S.editInput} placeholder="Re: {competitors} sur ChatGPT" />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Follow-up message (English)</div>
+                            <textarea value={followUpBodyEn} onChange={e => setFollowUpBodyEn(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Follow-up message (French)</div>
+                            <textarea value={followUpBodyFr} onChange={e => setFollowUpBodyFr(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                   </div>

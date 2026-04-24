@@ -3,8 +3,9 @@
 // ============================================
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
-import { getSenders } from './gmail';
-import { getSentContacts, updateContactStatus } from './sheets';
+import { getSenders, sendFollowUp } from './gmail';
+import { getSentContacts, updateContactStatus, updateTouchTracking } from './sheets';
+import { buildUnsubscribeFooter } from './template';
 import dayjs from 'dayjs';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -199,4 +200,90 @@ function extractBouncedEmail(body: string): string | null {
     if (match?.[1]) return match[1];
   }
   return null;
+}
+
+// ─── Send follow-up emails ────────────────────────────────────────────────────
+
+export interface FollowUpConfig {
+  delayDays: number;
+  subjectEn: string;
+  subjectFr: string;
+  bodyEn: string;
+  bodyFr: string;
+}
+
+export async function sendFollowUps(
+  config: FollowUpConfig,
+  sheetId?: string,
+  sheetTab?: string,
+): Promise<{ sent: number; skipped: number }> {
+  console.log('📨 Checking for follow-ups to send...');
+  const contacts = await getSentContacts(sheetId, sheetTab);
+  const senders = getSenders();
+  const now = dayjs();
+  let sent = 0;
+  let skipped = 0;
+
+  for (const contact of contacts) {
+    // Skip opted out, bounced, or already replied
+    if (contact.optedOut || contact.status === 'bounced' || contact.repliedAt) { skipped++; continue; }
+    if (!contact.threadId || !contact.assignedTo) { skipped++; continue; }
+
+    const hasSentTouch2 = !!contact.touch2SentAt;
+    const hasSentTouch3 = !!contact.touch3SentAt;
+
+    // Determine which touch to attempt
+    let touchNum: 2 | 3;
+    let referenceDate: string | undefined;
+
+    if (!hasSentTouch2) {
+      touchNum = 2;
+      referenceDate = contact.sentAt;
+    } else if (!hasSentTouch3) {
+      touchNum = 3;
+      referenceDate = contact.touch2SentAt;
+    } else {
+      skipped++;
+      continue; // all touches sent
+    }
+
+    if (!referenceDate) { skipped++; continue; }
+    if (now.diff(dayjs(referenceDate), 'day') < config.delayDays) { skipped++; continue; }
+
+    const sender = senders.find(s => s.email === contact.assignedTo);
+    if (!sender) { skipped++; continue; }
+
+    const isFr = (contact.language || 'EN').toUpperCase() === 'FR';
+    const subject = isFr ? config.subjectFr : config.subjectEn;
+    const unsubFooter = buildUnsubscribeFooter(contact.email, contact.language as any || 'EN');
+    const body = (isFr ? config.bodyFr : config.bodyEn) + unsubFooter;
+
+    try {
+      const result = await sendFollowUp(
+        sender,
+        contact.email,
+        subject,
+        body,
+        contact.threadId,
+        contact.messageId || '',
+      );
+
+      if (result.success && result.messageId) {
+        await updateTouchTracking(contact.rowIndex, touchNum, {
+          sentAt: now.toISOString(),
+          messageId: result.messageId,
+        }, sheetId, sheetTab);
+        console.log(`✅ Follow-up touch${touchNum} sent: ${contact.email}`);
+        sent++;
+      } else {
+        skipped++;
+      }
+    } catch (err) {
+      console.warn(`⚠️  Follow-up failed for ${contact.email}:`, err);
+      skipped++;
+    }
+  }
+
+  console.log(`📨 Follow-up run done. Sent: ${sent}, Skipped: ${skipped}`);
+  return { sent, skipped };
 }

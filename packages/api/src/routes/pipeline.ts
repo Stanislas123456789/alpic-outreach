@@ -22,6 +22,15 @@ export interface ProgressEvent {
 
 // ─── Campaign state ───────────────────────────────────────────────────────────
 
+export interface CampaignFollowUp {
+  enabled: boolean;
+  delayDays: number;
+  subjectEn: string;
+  subjectFr: string;
+  bodyEn: string;
+  bodyFr: string;
+}
+
 interface Campaign {
   id: string;
   name?: string;
@@ -34,6 +43,7 @@ interface Campaign {
   total: number;
   log: ProgressEvent[];
   error?: string;
+  followUp?: CampaignFollowUp;
   scheduledTimer?: ReturnType<typeof setTimeout>; // internal, not serialized
 }
 
@@ -106,6 +116,23 @@ export function getUniqueCampaignSheets(): { sheetId: string; sheetTab: string }
   const defaultKey = `${defaultId}::${defaultTab}`;
   if (defaultId && !seen.has(defaultKey)) {
     result.push({ sheetId: defaultId, sheetTab: defaultTab });
+  }
+  return result;
+}
+
+// Returns unique {sheetId, sheetTab, followUp} combos for campaigns with follow-up enabled
+export function getFollowUpConfigs(): { sheetId: string; sheetTab: string; followUp: CampaignFollowUp }[] {
+  const seen = new Set<string>();
+  const result: { sheetId: string; sheetTab: string; followUp: CampaignFollowUp }[] = [];
+  const sorted = Array.from(campaigns.values())
+    .filter(c => c.followUp?.enabled)
+    .sort((a, b) => (b.startedAt || b.scheduledAt || '').localeCompare(a.startedAt || a.scheduledAt || ''));
+  for (const c of sorted) {
+    const key = `${c.sheetId}::${c.sheetTab}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push({ sheetId: c.sheetId, sheetTab: c.sheetTab, followUp: c.followUp! });
+    }
   }
   return result;
 }
@@ -229,6 +256,15 @@ router.post('/run', async (req: Request, res: Response) => {
 
   const campaignId = Date.now().toString(36);
   const name: string | undefined = req.body?.name;
+  const followUpRaw = req.body?.followUp;
+  const followUp: CampaignFollowUp | undefined = followUpRaw?.enabled ? {
+    enabled: true,
+    delayDays: Number(followUpRaw.delayDays) || 4,
+    subjectEn: followUpRaw.subjectEn || '',
+    subjectFr: followUpRaw.subjectFr || '',
+    bodyEn: followUpRaw.bodyEn || '',
+    bodyFr: followUpRaw.bodyFr || '',
+  } : undefined;
   const campaign: Campaign = {
     id: campaignId,
     name,
@@ -240,6 +276,7 @@ router.post('/run', async (req: Request, res: Response) => {
     sent: 0,
     total: 0,
     log: [],
+    followUp,
   };
 
   campaigns.set(campaignId, campaign);

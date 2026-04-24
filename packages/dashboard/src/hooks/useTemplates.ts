@@ -9,6 +9,8 @@ export interface EmailTemplate {
   id: string;
   name: string;
   senderName: string;
+  subjectEn: string;
+  subjectFr: string;
   hookEn: string;
   hookFr: string;
   ctaEn: string;

@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import sendersRouter from './routes/senders';
-import pipelineRouter, { getUniqueCampaignSheets } from './routes/pipeline';
+import pipelineRouter, { getUniqueCampaignSheets, getFollowUpConfigs } from './routes/pipeline';
 import {
   readSenders,
   resetDailyCountersIfNeeded,
@@ -60,6 +60,7 @@ function requireAlpicEmail(
     req.path === '/api/senders/auth/callback' ||
     req.path === '/health' ||
     req.path === '/api/diag' ||
+    req.path === '/api/optout' ||
     req.path.startsWith('/pixel/')
   ) {
     next();
@@ -121,6 +122,30 @@ app.get('/pixel/:contactId', async (req, res) => {
   } catch (err: any) {
     console.error('[pixel] Error tracking open:', err.message);
   }
+});
+
+// GET /api/optout — one-click unsubscribe (no auth required, HMAC-protected)
+app.get('/api/optout', async (req, res) => {
+  const email = (req.query.email as string || '').trim().toLowerCase();
+  const sig   = (req.query.sig   as string || '').trim();
+  if (!email || !sig) { res.status(400).send('Invalid request'); return; }
+
+  const secret = process.env.OPTOUT_SECRET || 'alpic-optout-secret';
+  const expected = crypto.createHmac('sha256', secret).update(email).digest('hex');
+  if (sig !== expected) { res.status(403).send('Invalid signature'); return; }
+
+  try {
+    const { markOptedOutByEmail } = await import('../../pipeline/src/sheets');
+    await markOptedOutByEmail(email);
+    console.log(`[optout] ${email} opted out`);
+  } catch (err) {
+    console.error('[optout] Error:', err);
+  }
+
+  res.send(`<html><body style="font-family:sans-serif;padding:40px;max-width:400px">
+    <h2>Unsubscribed</h2>
+    <p>You have been removed from future emails. No further messages will be sent to <strong>${email}</strong>.</p>
+  </body></html>`);
 });
 
 // GET /api/diag — diagnose credentials without exposing secrets
@@ -246,8 +271,7 @@ function wireTokenRotation() {
 async function startPipelineCron() {
   const { checkReplies, checkBounces } = await import('../../pipeline/src/tracker');
 
-  // Reply / bounce check: every 15 min — runs on all unique sheets used by
-  // recent campaigns so non-default-sheet contacts are tracked correctly.
+  // Reply / bounce check + follow-up sends: every 15 min
   cron.schedule('*/15 * * * *', async () => {
     const sheetTargets = getUniqueCampaignSheets();
     for (const { sheetId, sheetTab } of sheetTargets) {
@@ -255,6 +279,19 @@ async function startPipelineCron() {
         .catch(err => console.error(`[cron] Reply check error (${sheetTab}):`, err));
       await checkBounces(sheetId, sheetTab)
         .catch(err => console.error(`[cron] Bounce check error (${sheetTab}):`, err));
+    }
+
+    // Follow-up sends — only for campaigns that have follow-up enabled
+    const followUpTargets = getFollowUpConfigs();
+    if (followUpTargets.length > 0) {
+      const { sendFollowUps } = await import('../../pipeline/src/tracker');
+      const { setSenders } = await import('../../pipeline/src/gmail');
+      const senders = readSenders().filter(s => !!s.refreshToken);
+      setSenders(senders.map(s => ({ ...s })));
+      for (const { sheetId, sheetTab, followUp } of followUpTargets) {
+        await sendFollowUps(followUp, sheetId, sheetTab)
+          .catch(err => console.error(`[cron] Follow-up error (${sheetTab}):`, err));
+      }
     }
   });
 

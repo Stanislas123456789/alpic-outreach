@@ -131,6 +131,14 @@ export function useApi(user: AuthUser | null) {
     draftMode?: boolean;
     scheduledAt?: string;
     senderEmail?: string;
+    followUp?: {
+      enabled: boolean;
+      delayDays: number;
+      subjectEn: string;
+      subjectFr: string;
+      bodyEn: string;
+      bodyFr: string;
+    };
   }): Promise<{ campaignId?: string }> => {
     setLoading(true);
     setRunMessage(null);
