@@ -62,6 +62,16 @@ export async function checkReplies(
 
         // Make sure reply is NOT from the sender themselves
         if (!fromHeader.includes(contact.assignedTo)) {
+          // Skip bounce/delivery notifications — these are NOT real replies
+          const fromLower = fromHeader.toLowerCase();
+          if (
+            fromLower.includes('mailer-daemon') ||
+            fromLower.includes('postmaster') ||
+            fromLower.includes('mail delivery') ||
+            fromLower.includes('noreply') ||
+            fromLower.includes('no-reply')
+          ) continue;
+
           await updateContactStatus(contact.rowIndex, {
             status: 'replied',
             repliedAt: dayjs().toISOString(),

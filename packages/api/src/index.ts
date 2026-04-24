@@ -342,7 +342,7 @@ if (START_CRON) {
   });
 }
 
-app.listen(API_PORT, () => {
+app.listen(API_PORT, async () => {
   console.log(`
   ╔════════════════════════════════════════╗
   ║   ALPIC OUTREACH API v1.0              ║
@@ -351,4 +351,26 @@ app.listen(API_PORT, () => {
   ║   Auto-send: ALWAYS DISABLED           ║
   ╚════════════════════════════════════════╝
   `);
+
+  // Startup health check: verify tracking pixel is reachable
+  const trackingUrl = (process.env.TRACKING_BASE_URL || '').replace(/\/$/, '');
+  if (!trackingUrl) {
+    console.error('  ⚠️  TRACKING_BASE_URL is NOT SET — open tracking will not work!');
+  } else {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${trackingUrl}/pixel/health-check?row=0`, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) {
+        console.log(`  ✅ Tracking pixel OK: ${trackingUrl}`);
+      } else {
+        console.error(`  ⚠️  Tracking pixel returned HTTP ${res.status}: ${trackingUrl}`);
+      }
+    } catch (err: any) {
+      const reason = err.code === 'ENOTFOUND' ? 'DNS not found' : err.message;
+      console.error(`  ⚠️  Tracking pixel UNREACHABLE: ${trackingUrl} — ${reason}`);
+      console.error('     Open tracking will NOT work until this is fixed!');
+    }
+  }
 });

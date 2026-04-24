@@ -5,6 +5,27 @@ import { readSenders, syncSentCounts } from '../senders';
 
 const router = Router();
 
+// ─── Tracking pixel health check ─────────────────────────────────────────────
+// Verifies the tracking pixel URL is reachable and returns a valid image.
+// Called before campaign launch to catch dead domains early.
+
+async function checkTrackingPixelHealth(): Promise<{ ok: boolean; url: string; error?: string }> {
+  const base = (process.env.TRACKING_BASE_URL || '').replace(/\/$/, '');
+  if (!base) return { ok: false, url: '', error: 'TRACKING_BASE_URL not set' };
+
+  const testUrl = `${base}/pixel/health-check?row=0`;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(testUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) return { ok: true, url: base };
+    return { ok: false, url: base, error: `HTTP ${res.status}` };
+  } catch (err: any) {
+    return { ok: false, url: base, error: err.code === 'ENOTFOUND' ? 'DNS not found' : err.message };
+  }
+}
+
 // ─── Progress event type ──────────────────────────────────────────────────────
 
 export interface ProgressEvent {
@@ -254,6 +275,12 @@ router.post('/run', async (req: Request, res: Response) => {
     }
   }
 
+  // Pre-flight: verify tracking pixel is reachable
+  const trackingHealth = await checkTrackingPixelHealth();
+  if (!trackingHealth.ok) {
+    console.warn(`[campaign] ⚠️ Tracking pixel UNREACHABLE: ${trackingHealth.url} — ${trackingHealth.error}`);
+  }
+
   const campaignId = Date.now().toString(36);
   const name: string | undefined = req.body?.name;
   const followUpRaw = req.body?.followUp;
@@ -296,6 +323,7 @@ router.post('/run', async (req: Request, res: Response) => {
       ok: true,
       campaignId,
       message: `Campaign scheduled for ${scheduledAt}`,
+      trackingPixel: trackingHealth.ok ? 'ok' : `WARNING: open tracking broken — ${trackingHealth.error} (${trackingHealth.url})`,
     });
   } else {
     // Run immediately
@@ -308,6 +336,7 @@ router.post('/run', async (req: Request, res: Response) => {
       senderCount: senders.length,
       excluded: excludeIds.length,
       draftMode,
+      trackingPixel: trackingHealth.ok ? 'ok' : `WARNING: open tracking broken — ${trackingHealth.error} (${trackingHealth.url})`,
     });
 
     // Run async after responding
@@ -450,16 +479,22 @@ router.get('/preview', async (req: Request, res: Response) => {
 });
 
 // GET /api/pipeline/status — current pipeline state + per-sender stats (backward compat)
-router.get('/status', (_req: Request, res: Response) => {
+router.get('/status', async (_req: Request, res: Response) => {
   const senders = readSenders();
   const anyRunning = Array.from(campaigns.values()).some(c => c.status === 'running');
   const last = getLastCampaign();
+  const trackingHealth = await checkTrackingPixelHealth();
 
   res.json({
     running: anyRunning,
     lastRunAt: last?.startedAt || null,
     lastRunResult: last ? (last.status === 'done' ? 'success' : last.status === 'error' ? 'error' : null) : null,
     lastRunError: last?.error || null,
+    trackingPixel: {
+      ok: trackingHealth.ok,
+      url: trackingHealth.url,
+      error: trackingHealth.error || null,
+    },
     senders: senders.map(s => ({
       email: s.email,
       name: s.name,

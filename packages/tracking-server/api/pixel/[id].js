@@ -110,6 +110,8 @@ module.exports = async function handler(req, res) {
   try {
     const contactId = decodeURIComponent(req.query.id || '');
     const rowIndex = parseInt(req.query.row || '0');
+    const sheetId = req.query.sheetId || SHEET_ID;
+    const tab = req.query.tab || SHEET_TAB;
 
     if (!rowIndex || rowIndex < 2) return;
 
@@ -133,38 +135,47 @@ module.exports = async function handler(req, res) {
 
     const sheets = google.sheets({ version: 'v4', auth: getAuth() });
 
-    // Get current values for this row (open_count and first_open_at)
+    // Read: status (W), openCount (AB), firstOpenAt (AC)
     const currentRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${SHEET_TAB}!W${rowIndex}:X${rowIndex}`,
+      spreadsheetId: sheetId,
+      range: `${tab}!W${rowIndex}`,
     });
+    const currentStatus = (currentRes.data.values?.[0]?.[0] || '').toString().toLowerCase();
 
-    const currentValues = currentRes.data.values?.[0] || [];
-    const currentOpenCount = parseInt(currentValues[0] || '0');
-    const existingFirstOpen = currentValues[1] || '';
+    const countRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${tab}!AB${rowIndex}:AC${rowIndex}`,
+    });
+    const countValues = countRes.data.values?.[0] || [];
+    const currentOpenCount = parseInt(countValues[0] || '0');
+    const existingFirstOpen = countValues[1] || '';
     const now = new Date().toISOString();
 
     const updates = [
       {
-        range: `${SHEET_TAB}!W${rowIndex}`,
+        range: `${tab}!AB${rowIndex}`,  // openCount = col AB (27)
         values: [[(currentOpenCount + 1).toString()]],
       },
     ];
 
-    // Set first_open_at only on first open
+    // Set firstOpenAt on first open
     if (!existingFirstOpen) {
       updates.push({
-        range: `${SHEET_TAB}!R${rowIndex}`, // status → 'opened'
-        values: [['opened']],
-      });
-      updates.push({
-        range: `${SHEET_TAB}!X${rowIndex}`,
+        range: `${tab}!AC${rowIndex}`,  // firstOpenAt = col AC (28)
         values: [[now]],
       });
     }
 
+    // Only promote status to 'opened' if currently 'sent' (don't overwrite replied/bounced)
+    if (currentStatus === 'sent') {
+      updates.push({
+        range: `${tab}!W${rowIndex}`,   // status = col W (22)
+        values: [['opened']],
+      });
+    }
+
     await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: SHEET_ID,
+      spreadsheetId: sheetId,
       requestBody: {
         valueInputOption: 'RAW',
         data: updates,
