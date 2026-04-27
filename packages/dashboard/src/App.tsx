@@ -142,6 +142,13 @@ export default function App() {
   const [filterAssignedTo, setFilterAssignedTo] = useState('all');
   const [filterLinkedIn, setFilterLinkedIn] = useState<'all' | 'yes' | 'no'>('all');
   const [filterOpens, setFilterOpens] = useState<'all' | 'yes'>('all');
+  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
+    (localStorage.getItem('alpic_theme') as 'dark' | 'light') || 'dark'
+  );
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', theme === 'light');
+    localStorage.setItem('alpic_theme', theme);
+  }, [theme]);
   const api = useApi(user);
 
   // Daily metrics for chronological chart
@@ -313,6 +320,7 @@ export default function App() {
           <span className="last-updated">
             {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : ''}
           </span>
+          <button className="refresh-btn" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} title={theme === 'dark' ? 'Light mode' : 'Dark mode'}>{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="refresh-btn" onClick={refresh}>↻ Refresh</button>
           {/* Launch Campaign CTA — replaces Senders tab */}
           {user?.email?.endsWith('@alpic.ai') && (

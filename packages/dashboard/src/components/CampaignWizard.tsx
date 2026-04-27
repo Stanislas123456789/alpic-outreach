@@ -6,7 +6,7 @@ import SendLiveView from './SendLiveView';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type WizardStep = 'sheet' | 'audience' | 'configure' | 'template' | 'review' | 'live';
+type WizardStep = 'sheet' | 'audience' | 'configure' | 'template' | 'followup' | 'review' | 'live';
 type SpeedMode = 'slow' | 'normal' | 'fast';
 
 interface LaunchOpts {
@@ -47,6 +47,7 @@ const STEPS: { id: WizardStep; label: string }[] = [
   { id: 'audience', label: 'Audience' },
   { id: 'configure', label: 'Configure' },
   { id: 'template', label: 'Template' },
+  { id: 'followup', label: 'Follow-up' },
   { id: 'review', label: 'Review' },
   { id: 'live', label: 'Live' },
 ];
@@ -336,6 +337,13 @@ export default function CampaignWizard({
 
   // ── Template helpers ────────────────────────────────────────────────────────
 
+  function textToHtml(text: string): string {
+    return text
+      .split(/\n\n+/)
+      .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+      .join('\n');
+  }
+
   function buildTplBody(c: PreviewContact): string {
     const lang = (c.language || 'EN').toUpperCase() as 'EN' | 'FR';
     const isFr = lang === 'FR';
@@ -347,12 +355,12 @@ export default function CampaignWizard({
        .replace(/{company}/g, c.company || 'your company')
        .replace(/{appWord}/g, appWord);
 
-    const hook = fill(isFr ? tplHookFr : tplHookEn);
-    const cta  = fill(isFr ? tplCtaFr  : tplCtaEn);
+    const hookHtml = textToHtml(fill(isFr ? tplHookFr : tplHookEn));
+    const ctaHtml = textToHtml(fill(isFr ? tplCtaFr : tplCtaEn));
     const closing = isFr ? tplClosingFr : tplClosingEn;
     const greeting = isFr ? `Bonjour ${c.firstName},` : `Hi ${c.firstName},`;
 
-    return `<p>${greeting}</p>\n\n<p>${hook}</p>\n\n<p>${cta}</p>\n\n<p>${closing},<br>${tplSenderName}</p>`;
+    return `<p>${greeting}</p>\n${hookHtml}\n${ctaHtml}\n<p>${closing},<br>${tplSenderName}</p>`;
   }
 
   // Substitute {competitors}, {company}, {appWord} in a subject template string
@@ -366,23 +374,19 @@ export default function CampaignWizard({
       .replace(/{appWord}/g, appWord);
   }
 
-  // Apply template to all final contacts before entering Review
-  function applyTemplateAndGoToReview() {
+  function applyTemplateOverrides() {
     const overrides: Record<string, { subject: string; body: string }> = { ...emailOverrides };
     for (const c of finalContacts) {
       const lang = (c.language || 'EN').toUpperCase() as 'EN' | 'FR';
       const tplSubject = lang === 'FR' ? tplSubjectFr : tplSubjectEn;
-      // Resolve variables in the subject template (e.g. {competitors} → actual names)
       const resolvedSubject = tplSubject ? fillSubject(tplSubject, c) : c.subject;
       if (!overrides[c.id]) {
         overrides[c.id] = { subject: resolvedSubject, body: buildTplBody(c) };
       } else {
-        // Re-apply template body but keep any subject override
         overrides[c.id] = { subject: overrides[c.id].subject, body: buildTplBody(c) };
       }
     }
     setEmailOverrides(overrides);
-    setStep('review');
   }
 
   // Preview for template step — first contact or dummy
@@ -469,6 +473,7 @@ export default function CampaignWizard({
               {step === 'audience' && 'Choose which industries and contacts to include'}
               {step === 'configure' && 'Set send speed, volume, and options'}
               {step === 'template' && 'Edit the email template — changes apply to all contacts'}
+              {step === 'followup' && 'Configure automatic follow-up emails for non-responders'}
               {step === 'review' && 'Review contacts and edit emails before sending'}
               {step === 'live' && (draftMode ? 'Drafts are being created in Gmail' : 'Campaign is running — watch emails go out live')}
             </p>
@@ -733,7 +738,7 @@ export default function CampaignWizard({
                         <label style={S.configLabel}>Max contacts per company</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <input
-                            type="range" min={1} max={5} value={maxPerCompany}
+                            type="range" min={1} max={10} value={maxPerCompany}
                             onChange={e => setMaxPerCompany(Number(e.target.value))}
                             style={{ flex: 1, accentColor: 'var(--accent)' }}
                           />
@@ -921,65 +926,11 @@ export default function CampaignWizard({
                       </div>
                     </div>
 
-                    {/* Follow-up */}
-                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <div>
-                          <div style={S.sectionLabel}>Follow-up sequence</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                            Automatically send a follow-up in the same thread if no reply.
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => setFollowUpEnabled(p => !p)}
-                          style={{
-                            padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                            border: `1px solid ${followUpEnabled ? 'var(--accent)' : 'var(--border)'}`,
-                            background: followUpEnabled ? 'var(--accent)' : 'none',
-                            color: followUpEnabled ? 'white' : 'var(--text-secondary)',
-                            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", flexShrink: 0,
-                          }}
-                        >
-                          {followUpEnabled ? 'Enabled' : 'Disabled'}
-                        </button>
-                      </div>
-                      {followUpEnabled && (
-                        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Send after</span>
-                            <input
-                              type="number" min={1} max={30}
-                              value={followUpDelayDays}
-                              onChange={e => setFollowUpDelayDays(Number(e.target.value))}
-                              style={{ ...S.editInput, width: 56, textAlign: 'center' as const }}
-                            />
-                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>days without reply</span>
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Subject (English) — leave blank to reuse original</div>
-                            <input value={followUpSubjectEn} onChange={e => setFollowUpSubjectEn(e.target.value)} style={S.editInput} placeholder="Re: {competitors} on ChatGPT" />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Subject (French)</div>
-                            <input value={followUpSubjectFr} onChange={e => setFollowUpSubjectFr(e.target.value)} style={S.editInput} placeholder="Re: {competitors} sur ChatGPT" />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Follow-up message (English)</div>
-                            <textarea value={followUpBodyEn} onChange={e => setFollowUpBodyEn(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Follow-up message (French)</div>
-                            <textarea value={followUpBodyFr} onChange={e => setFollowUpBodyFr(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
                   </div>
                 </div>
 
                 {/* Right: live preview */}
-                <div style={{ width: 320, flexShrink: 0, padding: 20, overflowY: 'auto' as const, background: 'var(--bg)' }}>
+                <div style={{ width: 380, flexShrink: 0, padding: 20, overflowY: 'auto' as const, background: 'var(--bg)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' as const, letterSpacing: '0.07em' }}>Live preview</div>
                     <div style={{ display: 'flex', gap: 4 }}>
@@ -1001,7 +952,7 @@ export default function CampaignWizard({
                       To: {tplPreviewContact.email}<br />
                       Subject: {(() => { const raw = (tplPreviewLang === 'FR' ? tplSubjectFr : tplSubjectEn) || tplPreviewContact.subject; return raw ? fillSubject(raw, tplPreviewContact) : raw; })()}
                     </div>
-                    <div dangerouslySetInnerHTML={{ __html: buildTplBody({ ...tplPreviewContact, language: tplPreviewLang }) }} />
+                    <div className="email-preview" dangerouslySetInnerHTML={{ __html: buildTplBody({ ...tplPreviewContact, language: tplPreviewLang }) }} />
                   </div>
                   <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                     Preview using <strong>{tplPreviewContact.firstName} {tplPreviewContact.lastName}</strong> @ {tplPreviewContact.company}.
@@ -1014,15 +965,92 @@ export default function CampaignWizard({
                 <button
                   style={{ ...S.btnPrimary, opacity: finalContacts.length === 0 ? 0.4 : 1 }}
                   disabled={finalContacts.length === 0}
-                  onClick={applyTemplateAndGoToReview}
+                  onClick={() => { applyTemplateOverrides(); setStep('followup'); }}
                 >
+                  Follow-up →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP: Follow-up ─────────────────────────────────── */}
+          {step === 'followup' && (
+            <div style={S.stepWrap}>
+              <div style={S.stepContent}>
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 24 }}>
+
+                  {/* Touch 2 */}
+                  <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: followUpEnabled ? 16 : 0 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Follow-up 1</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Sent in the same thread if no reply</div>
+                      </div>
+                      <button onClick={() => setFollowUpEnabled(p => !p)} style={{
+                        padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        border: `1px solid ${followUpEnabled ? 'var(--accent)' : 'var(--border)'}`,
+                        background: followUpEnabled ? 'var(--accent)' : 'none',
+                        color: followUpEnabled ? 'white' : 'var(--text-secondary)',
+                        cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                      }}>{followUpEnabled ? 'Enabled' : 'Disabled'}</button>
+                    </div>
+                    {followUpEnabled && (
+                      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Send after</span>
+                          <input type="number" min={1} max={30} value={followUpDelayDays} onChange={e => setFollowUpDelayDays(Number(e.target.value))} style={{ ...S.editInput, width: 56, textAlign: 'center' as const }} />
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>days without reply</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Subject (EN) — blank = reuse original</div>
+                            <input value={followUpSubjectEn} onChange={e => setFollowUpSubjectEn(e.target.value)} style={S.editInput} placeholder="Re: {competitors} on ChatGPT" />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Subject (FR)</div>
+                            <input value={followUpSubjectFr} onChange={e => setFollowUpSubjectFr(e.target.value)} style={S.editInput} placeholder="Re: {competitors} sur ChatGPT" />
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Message (EN)</div>
+                          <textarea value={followUpBodyEn} onChange={e => setFollowUpBodyEn(e.target.value)} rows={2} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Message (FR)</div>
+                          <textarea value={followUpBodyFr} onChange={e => setFollowUpBodyFr(e.target.value)} rows={2} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Touch 3 — only visible if Touch 2 is enabled */}
+                  {followUpEnabled && (
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, opacity: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Follow-up 2</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Second nudge if still no reply</div>
+                        </div>
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Uses same delay ({followUpDelayDays}d after Follow-up 1)</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        Touch 3 is automatically sent using the same settings. The system supports up to 2 follow-ups per contact.
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+              <div style={S.footer}>
+                <button style={S.btnSecondary} onClick={() => setStep('template')}>← Back</button>
+                <button style={S.btnPrimary} onClick={() => setStep('review')}>
                   Review {finalContacts.length} {draftMode ? 'drafts' : 'emails'} →
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── STEP 4: Review ────────────────────────────────────── */}
+          {/* ── STEP: Review ─────────────────────────────────────── */}
           {step === 'review' && (
             <div style={S.stepWrap}>
               <div style={{ ...S.stepContent, padding: 0 }}>
@@ -1118,7 +1146,7 @@ export default function CampaignWizard({
                 </div>
               </div>
               <div style={S.footer}>
-                <button style={S.btnSecondary} onClick={() => setStep('template')}>← Back</button>
+                <button style={S.btnSecondary} onClick={() => setStep('followup')}>← Back</button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   {launchError && <span style={{ fontSize: 12, color: '#f87171' }}>{launchError}</span>}
                   <button
@@ -1179,7 +1207,7 @@ const S: Record<string, React.CSSProperties> = {
   },
   modal: {
     background: 'var(--card)', border: '1px solid var(--border)',
-    borderRadius: 20, width: '100%', maxWidth: 800,
+    borderRadius: 20, width: '100%', maxWidth: 1060,
     maxHeight: '92vh', display: 'flex', flexDirection: 'column',
     overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
   },
