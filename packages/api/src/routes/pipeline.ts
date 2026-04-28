@@ -187,6 +187,7 @@ async function executeCampaign(
   speedMode?: string,
   draftMode?: boolean,
   senderEmail?: string,
+  unsubscribeEnabled?: boolean,
 ) {
   campaign.status = 'running';
   campaign.startedAt = new Date().toISOString();
@@ -219,6 +220,7 @@ async function executeCampaign(
       minDelay,
       maxDelay,
       draftMode,
+      unsubscribeEnabled,
       onProgress: (event: ProgressEvent) => {
         campaign.log.push(event);
         if (event.type === 'start' && event.total != null) {
@@ -264,6 +266,7 @@ router.post('/run', async (req: Request, res: Response) => {
   const draftMode: boolean = req.body?.draftMode === true;
   // senderEmail restricts sending to a single sender account — prevents cross-user email mixing
   const senderEmail: string | undefined = req.body?.senderEmail || (req.headers['x-auth-email'] as string | undefined);
+  const unsubscribeEnabled: boolean = req.body?.unsubscribeEnabled !== false; // default true
 
   // Check if another campaign is already running for the same sheetId+sheetTab
   for (const c of campaigns.values()) {
@@ -326,7 +329,7 @@ router.post('/run', async (req: Request, res: Response) => {
   if (isInFuture) {
     const delay = scheduleTime.getTime() - now.getTime();
     campaign.scheduledTimer = setTimeout(() => {
-      executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail);
+      executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled);
     }, delay);
 
     saveCampaigns(campaigns);
@@ -351,7 +354,7 @@ router.post('/run', async (req: Request, res: Response) => {
     });
 
     // Run async after responding
-    executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail);
+    executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled);
   }
 });
 

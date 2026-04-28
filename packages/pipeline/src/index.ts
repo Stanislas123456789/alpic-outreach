@@ -68,6 +68,7 @@ async function processContact(
   minDelay = MIN_DELAY,
   maxDelay = MAX_DELAY,
   draftMode = false,
+  unsubscribeEnabled = true,
 ): Promise<void> {
   log(`Processing: ${contact.email} (${contact.company})`);
 
@@ -132,8 +133,8 @@ async function processContact(
   // buildBody already includes tracking pixel + unsub footer.
   // For pre-filled bodies we must append them — otherwise opens are never tracked.
   const body    = preBody
-    ? preBody + buildTrackingSnippet(contact, sheetId, sheetTab)
-    : buildBody(contact, sheetId, sheetTab);
+    ? preBody + buildTrackingSnippet(contact, sheetId, sheetTab, unsubscribeEnabled)
+    : buildBody(contact, sheetId, sheetTab, unsubscribeEnabled);
 
   // 5. Dry run preview
   if (DRY_RUN) {
@@ -212,6 +213,7 @@ export async function runPipeline(options?: {
   minDelay?: number;
   maxDelay?: number;
   draftMode?: boolean;
+  unsubscribeEnabled?: boolean;
 }): Promise<void> {
   const {
     onProgress,
@@ -220,6 +222,7 @@ export async function runPipeline(options?: {
     minDelay = MIN_DELAY,
     maxDelay = MAX_DELAY,
     draftMode = false,
+    unsubscribeEnabled = true,
   } = options || {};
 
   log(chalk.bold('🚀 Starting Alpic Outreach Pipeline'));
@@ -266,7 +269,7 @@ export async function runPipeline(options?: {
   for (let i = 0; i < contacts.length; i++) {
     const contact = contacts[i];
 
-    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode);
+    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode, unsubscribeEnabled);
 
     // Delay between sends (skip delay after last email)
     if (i < contacts.length - 1 && !DRY_RUN && !draftMode) {

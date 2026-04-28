@@ -18,6 +18,7 @@ interface LaunchOpts {
   speedMode: SpeedMode;
   draftMode: boolean;
   senderEmail: string;
+  unsubscribeEnabled?: boolean;
   followUp?: {
     enabled: boolean;
     delayDays: number;
@@ -181,6 +182,7 @@ export default function CampaignWizard({
   const [maxPerCompany, setMaxPerCompany] = useState(2);
   const [speedMode, setSpeedMode] = useState<SpeedMode>('normal');
   const [draftMode, setDraftMode] = useState(false);
+  const [unsubscribeEnabled, setUnsubscribeEnabled] = useState(true);
 
   // Sender selection — locked to the logged-in user to prevent cross-user sends
   const [senderEmail] = useState<string>(user.email);
@@ -447,6 +449,7 @@ export default function CampaignWizard({
         speedMode,
         draftMode,
         senderEmail,
+        unsubscribeEnabled,
         followUp: followUpEnabled ? {
           enabled: true,
           delayDays: followUpDelayDays,
@@ -836,6 +839,26 @@ export default function CampaignWizard({
                         <div style={{ fontSize: 13, fontWeight: 700, color: draftMode ? '#f59e0b' : 'var(--text)' }}>Draft mode</div>
                         <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>Saved as Gmail drafts to review</div>
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Unsubscribe link */}
+                  <div>
+                    <div style={S.sectionLabel}>Unsubscribe link</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <button
+                        onClick={() => setUnsubscribeEnabled(p => !p)}
+                        style={{
+                          padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                          border: `1px solid ${unsubscribeEnabled ? 'var(--accent)' : 'var(--border)'}`,
+                          background: unsubscribeEnabled ? 'var(--accent)' : 'none',
+                          color: unsubscribeEnabled ? 'white' : 'var(--text-secondary)',
+                          cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                        }}
+                      >{unsubscribeEnabled ? 'Enabled' : 'Disabled'}</button>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                        {unsubscribeEnabled ? 'Unsubscribe link added to every email' : 'No unsubscribe link — use with caution'}
+                      </span>
                     </div>
                   </div>
 
