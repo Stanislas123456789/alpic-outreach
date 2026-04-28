@@ -270,9 +270,19 @@ export async function sendFollowUps(
     if (!sender) { skipped++; continue; }
 
     const isFr = (contact.language || 'EN').toUpperCase() === 'FR';
-    const subject = isFr ? activeConfig.subjectFr : activeConfig.subjectEn;
+    const comps = contact.competitors || 'Your competitors';
+    const compCount = comps.split(/[,/]/).filter(Boolean).length;
+    const appWord = compCount === 1 ? 'app' : 'apps';
+    const fill = (s: string) => s
+      .replace(/{firstName}/g, contact.firstName || '')
+      .replace(/{company}/g, contact.company || '')
+      .replace(/{competitors}/g, comps)
+      .replace(/{competitor}/g, comps.split(/[,/]/)[0]?.trim() || comps)
+      .replace(/{industry}/g, (contact.industry || '').toString())
+      .replace(/{appWord}/g, appWord);
+    const subject = fill(isFr ? activeConfig.subjectFr : activeConfig.subjectEn);
     const unsubFooter = buildUnsubscribeFooter(contact.email, contact.language as any || 'EN');
-    const body = (isFr ? activeConfig.bodyFr : activeConfig.bodyEn) + unsubFooter;
+    const body = fill(isFr ? activeConfig.bodyFr : activeConfig.bodyEn) + unsubFooter;
 
     try {
       const result = await sendFollowUp(

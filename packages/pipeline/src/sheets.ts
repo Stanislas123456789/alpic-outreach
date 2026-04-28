@@ -278,17 +278,22 @@ export async function getSentContacts(
     const threadId = row[SHEET_COLUMNS.threadId];
     if (!threadId) continue;
 
+    const fullName = row[SHEET_COLUMNS.contactName] || '';
+    const firstName = fullName.split(/\s+/)[0] || '';
+
     contacts.push({
       rowIndex: i + 2,
       id: row[SHEET_COLUMNS.email],
-      firstName: '',
+      firstName,
       email: row[SHEET_COLUMNS.email] || '',
-      role: '',
+      role: row[SHEET_COLUMNS.role] || '',
       company: row[SHEET_COLUMNS.company] || '',
       industry: row[SHEET_COLUMNS.industry] || '',
-      country: '',
-      competitors: '',
-      language: 'EN',
+      subIndustry: row[SHEET_COLUMNS.subIndustry] || '',
+      country: row[SHEET_COLUMNS.country] || '',
+      competitors: row[SHEET_COLUMNS.competitors] || '',
+      language: ((row[SHEET_COLUMNS.country] || '').toLowerCase().startsWith('fr') ||
+                 (row[SHEET_COLUMNS.region] || '').toLowerCase() === 'france') ? 'FR' : 'EN',
       status,
       assignedTo: row[SHEET_COLUMNS.assignedTo] || '',
       sentAt: row[SHEET_COLUMNS.sentAt] || '',
