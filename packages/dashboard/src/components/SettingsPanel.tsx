@@ -21,6 +21,18 @@ const BLANK_TEMPLATE: Omit<EmailTemplate, 'id' | 'createdAt' | 'updatedAt'> = {
   bodyFr: '',
   closingEn: 'Best',
   closingFr: 'Cordialement',
+  followUpEnabled: false,
+  followUpDelayDays: 4,
+  followUpSubjectEn: '',
+  followUpSubjectFr: '',
+  followUpBodyEn: 'Just following up on my message below — is this something {company} could explore?',
+  followUpBodyFr: 'Je reviens vers vous suite à mon message ci-dessous — est-ce quelque chose que {company} pourrait explorer\u00a0?',
+  followUp2Enabled: false,
+  followUp2DelayDays: 4,
+  followUp2SubjectEn: '',
+  followUp2SubjectFr: '',
+  followUp2BodyEn: 'Wanted to bump this one more time — happy to jump on a quick call if easier.',
+  followUp2BodyFr: 'Je me permets de relancer une dernière fois — seriez-vous disponible pour un appel rapide\u00a0?',
 };
 
 export default function SettingsPanel({ user, senders, getConnectUrl, disconnectSender, updateSenderLimit }: Props) {
@@ -295,6 +307,88 @@ export default function SettingsPanel({ user, senders, getConnectUrl, disconnect
                     )}
                   </div>
                 ))}
+
+                {/* ── Follow-up settings ── */}
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Follow-up 1</label>
+                    <button onClick={() => setEditDraft(p => ({ ...p, followUpEnabled: !p.followUpEnabled }))} style={{
+                      padding: '3px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700,
+                      border: `1px solid ${editDraft.followUpEnabled ? 'var(--accent)' : 'var(--border)'}`,
+                      background: editDraft.followUpEnabled ? 'var(--accent)' : 'none',
+                      color: editDraft.followUpEnabled ? 'white' : 'var(--text-secondary)',
+                      cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                    }}>{editDraft.followUpEnabled ? 'Enabled' : 'Disabled'}</button>
+                  </div>
+                  {editDraft.followUpEnabled && (<>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Send after</span>
+                      <input type="number" min={1} max={30} value={editDraft.followUpDelayDays ?? 4}
+                        onChange={e => setEditDraft(p => ({ ...p, followUpDelayDays: Number(e.target.value) }))}
+                        style={{ ...S.input, width: 56, textAlign: 'center' as const }} />
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>days</span>
+                    </div>
+                    {[
+                      { key: 'followUpSubjectEn', label: 'Subject (EN) — blank = reuse original' },
+                      { key: 'followUpSubjectFr', label: 'Subject (FR)' },
+                    ].map(({ key, label }) => (
+                      <div key={key} style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 10, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>{label}</label>
+                        <input value={(editDraft as any)[key] || ''} onChange={e => setEditDraft(p => ({ ...p, [key]: e.target.value }))} style={S.input} />
+                      </div>
+                    ))}
+                    {[
+                      { key: 'followUpBodyEn', label: 'Message (EN)' },
+                      { key: 'followUpBodyFr', label: 'Message (FR)' },
+                    ].map(({ key, label }) => (
+                      <div key={key} style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 10, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>{label}</label>
+                        <textarea rows={2} value={(editDraft as any)[key] || ''} onChange={e => setEditDraft(p => ({ ...p, [key]: e.target.value }))} style={S.textarea} />
+                      </div>
+                    ))}
+
+                    {/* Follow-up 2 */}
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Follow-up 2</label>
+                        <button onClick={() => setEditDraft(p => ({ ...p, followUp2Enabled: !p.followUp2Enabled }))} style={{
+                          padding: '3px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700,
+                          border: `1px solid ${editDraft.followUp2Enabled ? 'var(--accent)' : 'var(--border)'}`,
+                          background: editDraft.followUp2Enabled ? 'var(--accent)' : 'none',
+                          color: editDraft.followUp2Enabled ? 'white' : 'var(--text-secondary)',
+                          cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                        }}>{editDraft.followUp2Enabled ? 'Enabled' : 'Disabled'}</button>
+                      </div>
+                      {editDraft.followUp2Enabled && (<>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Send after</span>
+                          <input type="number" min={1} max={30} value={editDraft.followUp2DelayDays ?? 4}
+                            onChange={e => setEditDraft(p => ({ ...p, followUp2DelayDays: Number(e.target.value) }))}
+                            style={{ ...S.input, width: 56, textAlign: 'center' as const }} />
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>days after Follow-up 1</span>
+                        </div>
+                        {[
+                          { key: 'followUp2SubjectEn', label: 'Subject (EN) — blank = reuse original' },
+                          { key: 'followUp2SubjectFr', label: 'Subject (FR)' },
+                        ].map(({ key, label }) => (
+                          <div key={key} style={{ marginBottom: 8 }}>
+                            <label style={{ fontSize: 10, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>{label}</label>
+                            <input value={(editDraft as any)[key] || ''} onChange={e => setEditDraft(p => ({ ...p, [key]: e.target.value }))} style={S.input} />
+                          </div>
+                        ))}
+                        {[
+                          { key: 'followUp2BodyEn', label: 'Message (EN)' },
+                          { key: 'followUp2BodyFr', label: 'Message (FR)' },
+                        ].map(({ key, label }) => (
+                          <div key={key} style={{ marginBottom: 8 }}>
+                            <label style={{ fontSize: 10, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>{label}</label>
+                            <textarea rows={2} value={(editDraft as any)[key] || ''} onChange={e => setEditDraft(p => ({ ...p, [key]: e.target.value }))} style={S.textarea} />
+                          </div>
+                        ))}
+                      </>)}
+                    </div>
+                  </>)}
+                </div>
               </div>
             )}
           </div>

@@ -15,6 +15,20 @@ export interface EmailTemplate {
   bodyFr: string;
   closingEn: string;
   closingFr: string;
+  // Follow-up 1
+  followUpEnabled?: boolean;
+  followUpDelayDays?: number;
+  followUpSubjectEn?: string;
+  followUpSubjectFr?: string;
+  followUpBodyEn?: string;
+  followUpBodyFr?: string;
+  // Follow-up 2
+  followUp2Enabled?: boolean;
+  followUp2DelayDays?: number;
+  followUp2SubjectEn?: string;
+  followUp2SubjectFr?: string;
+  followUp2BodyEn?: string;
+  followUp2BodyFr?: string;
   createdAt: string;
   updatedAt: string;
 }

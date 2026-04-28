@@ -240,18 +240,23 @@ export default function CampaignWizard({
     } catch {}
     return '';
   });
-  const [followUpEnabled, setFollowUpEnabled] = useState(false);
-  const [followUpDelayDays, setFollowUpDelayDays] = useState(4);
-  const [followUpSubjectEn, setFollowUpSubjectEn] = useState('');
-  const [followUpSubjectFr, setFollowUpSubjectFr] = useState('');
-  const [followUpBodyEn, setFollowUpBodyEn] = useState('Just following up on my message below — is this something {company} could explore?');
-  const [followUpBodyFr, setFollowUpBodyFr] = useState('Je reviens vers vous suite à mon message ci-dessous — est-ce quelque chose que {company} pourrait explorer\u00a0?');
-  const [followUp2Enabled, setFollowUp2Enabled] = useState(false);
-  const [followUp2DelayDays, setFollowUp2DelayDays] = useState(4);
-  const [followUp2SubjectEn, setFollowUp2SubjectEn] = useState('');
-  const [followUp2SubjectFr, setFollowUp2SubjectFr] = useState('');
-  const [followUp2BodyEn, setFollowUp2BodyEn] = useState('Wanted to bump this one more time — happy to jump on a quick call if easier.');
-  const [followUp2BodyFr, setFollowUp2BodyFr] = useState('Je me permets de relancer une dernière fois — seriez-vous disponible pour un appel rapide\u00a0?');
+  // Follow-up state — loads from active template if available
+  const _tpl = (() => { try {
+    const id = localStorage.getItem('alpic_active_template_id');
+    if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); return ts.find((x: any) => x.id === id); }
+  } catch {} return null; })();
+  const [followUpEnabled, setFollowUpEnabled] = useState(_tpl?.followUpEnabled ?? false);
+  const [followUpDelayDays, setFollowUpDelayDays] = useState(_tpl?.followUpDelayDays ?? 4);
+  const [followUpSubjectEn, setFollowUpSubjectEn] = useState(_tpl?.followUpSubjectEn ?? '');
+  const [followUpSubjectFr, setFollowUpSubjectFr] = useState(_tpl?.followUpSubjectFr ?? '');
+  const [followUpBodyEn, setFollowUpBodyEn] = useState(_tpl?.followUpBodyEn ?? 'Just following up on my message below — is this something {company} could explore?');
+  const [followUpBodyFr, setFollowUpBodyFr] = useState(_tpl?.followUpBodyFr ?? 'Je reviens vers vous suite à mon message ci-dessous — est-ce quelque chose que {company} pourrait explorer\u00a0?');
+  const [followUp2Enabled, setFollowUp2Enabled] = useState(_tpl?.followUp2Enabled ?? false);
+  const [followUp2DelayDays, setFollowUp2DelayDays] = useState(_tpl?.followUp2DelayDays ?? 4);
+  const [followUp2SubjectEn, setFollowUp2SubjectEn] = useState(_tpl?.followUp2SubjectEn ?? '');
+  const [followUp2SubjectFr, setFollowUp2SubjectFr] = useState(_tpl?.followUp2SubjectFr ?? '');
+  const [followUp2BodyEn, setFollowUp2BodyEn] = useState(_tpl?.followUp2BodyEn ?? 'Wanted to bump this one more time — happy to jump on a quick call if easier.');
+  const [followUp2BodyFr, setFollowUp2BodyFr] = useState(_tpl?.followUp2BodyFr ?? 'Je me permets de relancer une dernière fois — seriez-vous disponible pour un appel rapide\u00a0?');
   const [tplPreviewLang, setTplPreviewLang] = useState<'EN' | 'FR'>('EN');
 
   // Step 4
@@ -999,7 +1004,7 @@ export default function CampaignWizard({
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Follow-up emails</div>
                       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Sent in the same thread if no reply</div>
                     </div>
-                    <button onClick={() => setFollowUpEnabled(p => !p)} style={{
+                    <button onClick={() => setFollowUpEnabled((p: boolean) => !p)} style={{
                       padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700,
                       border: `1px solid ${followUpEnabled ? 'var(--accent)' : 'var(--border)'}`,
                       background: followUpEnabled ? 'var(--accent)' : 'none',
@@ -1044,7 +1049,7 @@ export default function CampaignWizard({
                       {/* ── Follow-up 2 ── */}
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: followUp2Enabled ? 10 : 0 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>Follow-up 2</div>
-                        <button onClick={() => setFollowUp2Enabled(p => !p)} style={{
+                        <button onClick={() => setFollowUp2Enabled((p: boolean) => !p)} style={{
                           padding: '3px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700,
                           border: `1px solid ${followUp2Enabled ? 'var(--accent)' : 'var(--border)'}`,
                           background: followUp2Enabled ? 'var(--accent)' : 'none',
