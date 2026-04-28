@@ -11,18 +11,27 @@ export interface EmailTemplate {
   senderName: string;
   subjectEn: string;
   subjectFr: string;
-  hookEn: string;
-  hookFr: string;
-  ctaEn: string;
-  ctaFr: string;
+  bodyEn: string;
+  bodyFr: string;
   closingEn: string;
   closingFr: string;
   createdAt: string;
   updatedAt: string;
 }
 
+function migrate(raw: any): EmailTemplate {
+  // Merge old hookEn+ctaEn → bodyEn if template still has the old shape
+  if (raw.hookEn !== undefined || raw.ctaEn !== undefined) {
+    const bodyEn = [raw.hookEn, raw.ctaEn].filter(Boolean).join('\n\n');
+    const bodyFr = [raw.hookFr, raw.ctaFr].filter(Boolean).join('\n\n');
+    const { hookEn: _1, hookFr: _2, ctaEn: _3, ctaFr: _4, ...rest } = raw;
+    return { ...rest, bodyEn: bodyEn || rest.bodyEn || '', bodyFr: bodyFr || rest.bodyFr || '' };
+  }
+  return raw;
+}
+
 function load(): EmailTemplate[] {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+  try { return (JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') as any[]).map(migrate); } catch { return []; }
 }
 
 export function useTemplates() {

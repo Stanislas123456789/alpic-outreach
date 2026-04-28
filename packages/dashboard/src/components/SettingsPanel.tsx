@@ -17,10 +17,8 @@ const BLANK_TEMPLATE: Omit<EmailTemplate, 'id' | 'createdAt' | 'updatedAt'> = {
   senderName: '',
   subjectEn: '',
   subjectFr: '',
-  hookEn: '',
-  hookFr: '',
-  ctaEn: '',
-  ctaFr: '',
+  bodyEn: '',
+  bodyFr: '',
   closingEn: 'Best',
   closingFr: 'Cordialement',
 };
@@ -244,10 +242,10 @@ export default function SettingsPanel({ user, senders, getConnectUrl, disconnect
                     </button>
                   </div>
                 </div>
-                {/* Preview hook */}
-                {tpl.hookEn && (
+                {/* Preview body */}
+                {tpl.bodyEn && (
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, borderTop: '1px solid var(--border)', paddingTop: 8, width: '100%' }}>
-                    <strong style={{ color: 'var(--text)' }}>EN hook:</strong> {tpl.hookEn.slice(0, 120)}{tpl.hookEn.length > 120 ? '…' : ''}
+                    <strong style={{ color: 'var(--text)' }}>EN body:</strong> {tpl.bodyEn.slice(0, 120)}{tpl.bodyEn.length > 120 ? '…' : ''}
                   </div>
                 )}
               </div>
@@ -271,10 +269,8 @@ export default function SettingsPanel({ user, senders, getConnectUrl, disconnect
                   { key: 'senderName', label: 'Sender name (used in signature)', multiline: false },
                   { key: 'subjectEn', label: 'Subject — English (use {competitors}, {company}, {appWord})', multiline: false },
                   { key: 'subjectFr', label: 'Subject — French', multiline: false },
-                  { key: 'hookEn', label: 'Hook — English', multiline: true },
-                  { key: 'hookFr', label: 'Hook — French', multiline: true },
-                  { key: 'ctaEn', label: 'CTA — English', multiline: true },
-                  { key: 'ctaFr', label: 'CTA — French', multiline: true },
+                  { key: 'bodyEn', label: 'Body — English', multiline: true },
+                  { key: 'bodyFr', label: 'Body — French', multiline: true },
                   { key: 'closingEn', label: 'Closing — English', multiline: false },
                   { key: 'closingFr', label: 'Closing — French', multiline: false },
                 ].map(({ key, label, multiline }) => (

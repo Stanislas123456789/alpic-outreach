@@ -201,33 +201,30 @@ export default function CampaignWizard({
     } catch {}
     return 'Cordialement';
   });
-  const [tplHookEn, setTplHookEn] = useState(() => {
+  const [tplBodyEn, setTplBodyEn] = useState(() => {
     try {
       const id = localStorage.getItem('alpic_active_template_id');
-      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.hookEn) return t.hookEn; }
+      if (id) {
+        const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]');
+        const t = ts.find((x: any) => x.id === id);
+        if (t?.bodyEn) return t.bodyEn;
+        // migrate old hook+cta
+        if (t?.hookEn || t?.ctaEn) return [t.hookEn, t.ctaEn].filter(Boolean).join('\n\n');
+      }
     } catch {}
-    return "{competitors} just launched their ChatGPT {appWord}. Their services are now integrated and natively accessible to 900M+ ChatGPT users. This market is live since January 2026 and we think it could be a great opportunity for {company}. Is it something you're looking at?";
+    return "{competitors} just launched their ChatGPT {appWord}. Their services are now integrated and natively accessible to 900M+ ChatGPT users. This market is live since January 2026 and we think it could be a great opportunity for {company}. Is it something you're looking at?\n\nAlpic is currently the first app developer in the world and the reference solution in the <a href=\"https://developers.openai.com/apps-sdk/deploy\">OpenAI documentation</a>. Would be happy to give you more insights and explore relevance for {company} in a quick 15-minute talk.";
   });
-  const [tplHookFr, setTplHookFr] = useState(() => {
+  const [tplBodyFr, setTplBodyFr] = useState(() => {
     try {
       const id = localStorage.getItem('alpic_active_template_id');
-      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.hookFr) return t.hookFr; }
+      if (id) {
+        const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]');
+        const t = ts.find((x: any) => x.id === id);
+        if (t?.bodyFr) return t.bodyFr;
+        if (t?.hookFr || t?.ctaFr) return [t.hookFr, t.ctaFr].filter(Boolean).join('\n\n');
+      }
     } catch {}
-    return "{competitors} viennent de lancer leurs {appWord} ChatGPT. Leurs services sont désormais intégrés et nativement accessibles à plus de 900M d'utilisateurs ChatGPT. Ce marché est actif depuis janvier 2026 et nous pensons que c'est une réelle opportunité pour {company}. C'est quelque chose que vous regardez\u00a0?";
-  });
-  const [tplCtaEn, setTplCtaEn] = useState(() => {
-    try {
-      const id = localStorage.getItem('alpic_active_template_id');
-      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.ctaEn) return t.ctaEn; }
-    } catch {}
-    return 'Alpic is currently the first app developer in the world and the reference solution in the <a href="https://developers.openai.com/apps-sdk/deploy">OpenAI documentation</a>. Would be happy to give you more insights and explore relevance for {company} in a quick 15-minute talk.';
-  });
-  const [tplCtaFr, setTplCtaFr] = useState(() => {
-    try {
-      const id = localStorage.getItem('alpic_active_template_id');
-      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.ctaFr) return t.ctaFr; }
-    } catch {}
-    return "Alpic est actuellement le premier développeur d'apps au monde et la solution de référence dans la <a href=\"https://developers.openai.com/apps-sdk/deploy\">documentation OpenAI</a>. Je serais ravi de vous donner plus de détails et d'explorer la pertinence pour {company} en 15 minutes.";
+    return "{competitors} viennent de lancer leurs {appWord} ChatGPT. Leurs services sont désormais intégrés et nativement accessibles à plus de 900M d'utilisateurs ChatGPT. Ce marché est actif depuis janvier 2026 et nous pensons que c'est une réelle opportunité pour {company}. C'est quelque chose que vous regardez\u00a0?\n\nAlpic est actuellement le premier développeur d'apps au monde et la solution de référence dans la <a href=\"https://developers.openai.com/apps-sdk/deploy\">documentation OpenAI</a>. Je serais ravi de vous donner plus de détails et d'explorer la pertinence pour {company} en 15 minutes.";
   });
   const [tplSubjectEn, setTplSubjectEn] = useState(() => {
     try {
@@ -381,12 +378,11 @@ export default function CampaignWizard({
        .replace(/{company}/g, c.company || 'your company')
        .replace(/{appWord}/g, appWord);
 
-    const hookHtml = textToHtml(fill(isFr ? tplHookFr : tplHookEn));
-    const ctaHtml = textToHtml(fill(isFr ? tplCtaFr : tplCtaEn));
+    const bodyHtml = textToHtml(fill(isFr ? tplBodyFr : tplBodyEn));
     const closing = isFr ? tplClosingFr : tplClosingEn;
     const greeting = isFr ? `Bonjour ${c.firstName},` : `Hi ${c.firstName},`;
 
-    return `<p>${greeting}</p>\n${hookHtml}\n${ctaHtml}\n<p>${closing},<br>${tplSenderName}</p>`;
+    return `<p>${greeting}</p>\n${bodyHtml}\n<p>${closing},<br>${tplSenderName}</p>`;
   }
 
   // Substitute {competitors}, {company}, {appWord} in a subject template string
@@ -925,9 +921,9 @@ export default function CampaignWizard({
                       </div>
                     </div>
 
-                    {/* Hook paragraph */}
+                    {/* Body */}
                     <div>
-                      <div style={S.sectionLabel}>Hook paragraph</div>
+                      <div style={S.sectionLabel}>Body</div>
                       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
                         Variables: <code style={{ background: 'var(--bg)', padding: '1px 5px', borderRadius: 3 }}>{'{competitors}'}</code>{' '}
                         <code style={{ background: 'var(--bg)', padding: '1px 5px', borderRadius: 3 }}>{'{company}'}</code>{' '}
@@ -936,26 +932,11 @@ export default function CampaignWizard({
                       <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
                         <div>
                           <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>English</div>
-                          <textarea value={tplHookEn} onChange={e => setTplHookEn(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                          <textarea value={tplBodyEn} onChange={e => setTplBodyEn(e.target.value)} rows={6} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
                         </div>
                         <div>
                           <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>French</div>
-                          <textarea value={tplHookFr} onChange={e => setTplHookFr(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* CTA paragraph */}
-                    <div>
-                      <div style={S.sectionLabel}>CTA / closing pitch</div>
-                      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
-                        <div>
-                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>English</div>
-                          <textarea value={tplCtaEn} onChange={e => setTplCtaEn(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>French</div>
-                          <textarea value={tplCtaFr} onChange={e => setTplCtaFr(e.target.value)} rows={3} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                          <textarea value={tplBodyFr} onChange={e => setTplBodyFr(e.target.value)} rows={6} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
                         </div>
                       </div>
                     </div>
