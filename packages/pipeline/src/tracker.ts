@@ -226,6 +226,7 @@ export async function sendFollowUps(
   config: FollowUpConfig,
   sheetId?: string,
   sheetTab?: string,
+  config2?: FollowUpConfig,
 ): Promise<{ sent: number; skipped: number }> {
   console.log('📨 Checking for follow-ups to send...');
   const contacts = await getSentContacts(sheetId, sheetTab);
@@ -250,6 +251,8 @@ export async function sendFollowUps(
       touchNum = 2;
       referenceDate = contact.sentAt;
     } else if (!hasSentTouch3) {
+      // Touch 3 only if follow-up 2 is configured (either explicit config2 or fallback to config)
+      if (!config2) { skipped++; continue; }
       touchNum = 3;
       referenceDate = contact.touch2SentAt;
     } else {
@@ -257,16 +260,19 @@ export async function sendFollowUps(
       continue; // all touches sent
     }
 
+    // Pick the right config for this touch
+    const activeConfig = touchNum === 3 && config2 ? config2 : config;
+
     if (!referenceDate) { skipped++; continue; }
-    if (now.diff(dayjs(referenceDate), 'day') < config.delayDays) { skipped++; continue; }
+    if (now.diff(dayjs(referenceDate), 'day') < activeConfig.delayDays) { skipped++; continue; }
 
     const sender = senders.find(s => s.email === contact.assignedTo);
     if (!sender) { skipped++; continue; }
 
     const isFr = (contact.language || 'EN').toUpperCase() === 'FR';
-    const subject = isFr ? config.subjectFr : config.subjectEn;
+    const subject = isFr ? activeConfig.subjectFr : activeConfig.subjectEn;
     const unsubFooter = buildUnsubscribeFooter(contact.email, contact.language as any || 'EN');
-    const body = (isFr ? config.bodyFr : config.bodyEn) + unsubFooter;
+    const body = (isFr ? activeConfig.bodyFr : activeConfig.bodyEn) + unsubFooter;
 
     try {
       const result = await sendFollowUp(

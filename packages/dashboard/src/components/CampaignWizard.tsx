@@ -26,6 +26,14 @@ interface LaunchOpts {
     bodyEn: string;
     bodyFr: string;
   };
+  followUp2?: {
+    enabled: boolean;
+    delayDays: number;
+    subjectEn: string;
+    subjectFr: string;
+    bodyEn: string;
+    bodyFr: string;
+  };
 }
 
 interface Props {
@@ -221,14 +229,32 @@ export default function CampaignWizard({
     } catch {}
     return "Alpic est actuellement le premier développeur d'apps au monde et la solution de référence dans la <a href=\"https://developers.openai.com/apps-sdk/deploy\">documentation OpenAI</a>. Je serais ravi de vous donner plus de détails et d'explorer la pertinence pour {company} en 15 minutes.";
   });
-  const [tplSubjectEn, setTplSubjectEn] = useState('');
-  const [tplSubjectFr, setTplSubjectFr] = useState('');
+  const [tplSubjectEn, setTplSubjectEn] = useState(() => {
+    try {
+      const id = localStorage.getItem('alpic_active_template_id');
+      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.subjectEn) return t.subjectEn; }
+    } catch {}
+    return '';
+  });
+  const [tplSubjectFr, setTplSubjectFr] = useState(() => {
+    try {
+      const id = localStorage.getItem('alpic_active_template_id');
+      if (id) { const ts = JSON.parse(localStorage.getItem('alpic_email_templates') || '[]'); const t = ts.find((x: any) => x.id === id); if (t?.subjectFr) return t.subjectFr; }
+    } catch {}
+    return '';
+  });
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpDelayDays, setFollowUpDelayDays] = useState(4);
   const [followUpSubjectEn, setFollowUpSubjectEn] = useState('');
   const [followUpSubjectFr, setFollowUpSubjectFr] = useState('');
   const [followUpBodyEn, setFollowUpBodyEn] = useState('Just following up on my message below — is this something {company} could explore?');
   const [followUpBodyFr, setFollowUpBodyFr] = useState('Je reviens vers vous suite à mon message ci-dessous — est-ce quelque chose que {company} pourrait explorer\u00a0?');
+  const [followUp2Enabled, setFollowUp2Enabled] = useState(false);
+  const [followUp2DelayDays, setFollowUp2DelayDays] = useState(4);
+  const [followUp2SubjectEn, setFollowUp2SubjectEn] = useState('');
+  const [followUp2SubjectFr, setFollowUp2SubjectFr] = useState('');
+  const [followUp2BodyEn, setFollowUp2BodyEn] = useState('Wanted to bump this one more time — happy to jump on a quick call if easier.');
+  const [followUp2BodyFr, setFollowUp2BodyFr] = useState('Je me permets de relancer une dernière fois — seriez-vous disponible pour un appel rapide\u00a0?');
   const [tplPreviewLang, setTplPreviewLang] = useState<'EN' | 'FR'>('EN');
 
   // Step 4
@@ -427,6 +453,14 @@ export default function CampaignWizard({
           subjectFr: followUpSubjectFr,
           bodyEn: followUpBodyEn,
           bodyFr: followUpBodyFr,
+        } : undefined,
+        followUp2: followUpEnabled && followUp2Enabled ? {
+          enabled: true,
+          delayDays: followUp2DelayDays,
+          subjectEn: followUp2SubjectEn,
+          subjectFr: followUp2SubjectFr,
+          bodyEn: followUp2BodyEn,
+          bodyFr: followUp2BodyFr,
         } : undefined,
       });
       setActiveCampaignId(result?.campaignId);
@@ -977,24 +1011,26 @@ export default function CampaignWizard({
           {step === 'followup' && (
             <div style={S.stepWrap}>
               <div style={S.stepContent}>
-                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 24 }}>
-
-                  {/* Touch 2 */}
-                  <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: followUpEnabled ? 16 : 0 }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Follow-up 1</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Sent in the same thread if no reply</div>
-                      </div>
-                      <button onClick={() => setFollowUpEnabled(p => !p)} style={{
-                        padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                        border: `1px solid ${followUpEnabled ? 'var(--accent)' : 'var(--border)'}`,
-                        background: followUpEnabled ? 'var(--accent)' : 'none',
-                        color: followUpEnabled ? 'white' : 'var(--text-secondary)',
-                        cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
-                      }}>{followUpEnabled ? 'Enabled' : 'Disabled'}</button>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
+                  {/* Header + master toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: followUpEnabled ? 16 : 0 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Follow-up emails</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Sent in the same thread if no reply</div>
                     </div>
-                    {followUpEnabled && (
+                    <button onClick={() => setFollowUpEnabled(p => !p)} style={{
+                      padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                      border: `1px solid ${followUpEnabled ? 'var(--accent)' : 'var(--border)'}`,
+                      background: followUpEnabled ? 'var(--accent)' : 'none',
+                      color: followUpEnabled ? 'white' : 'var(--text-secondary)',
+                      cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                    }}>{followUpEnabled ? 'Enabled' : 'Disabled'}</button>
+                  </div>
+
+                  {followUpEnabled && (
+                    <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 0 }}>
+                      {/* ── Follow-up 1 ── */}
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>Follow-up 1</div>
                       <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Send after</span>
@@ -1020,25 +1056,50 @@ export default function CampaignWizard({
                           <textarea value={followUpBodyFr} onChange={e => setFollowUpBodyFr(e.target.value)} rows={2} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
                         </div>
                       </div>
-                    )}
-                  </div>
 
-                  {/* Touch 3 — only visible if Touch 2 is enabled */}
-                  {followUpEnabled && (
-                    <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, opacity: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Follow-up 2</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Second nudge if still no reply</div>
+                      {/* ── Divider ── */}
+                      <div style={{ borderTop: '1px solid var(--border)', margin: '20px 0' }} />
+
+                      {/* ── Follow-up 2 ── */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: followUp2Enabled ? 10 : 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>Follow-up 2</div>
+                        <button onClick={() => setFollowUp2Enabled(p => !p)} style={{
+                          padding: '3px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700,
+                          border: `1px solid ${followUp2Enabled ? 'var(--accent)' : 'var(--border)'}`,
+                          background: followUp2Enabled ? 'var(--accent)' : 'none',
+                          color: followUp2Enabled ? 'white' : 'var(--text-secondary)',
+                          cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                        }}>{followUp2Enabled ? 'Enabled' : 'Disabled'}</button>
+                      </div>
+                      {followUp2Enabled && (
+                        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Send after</span>
+                            <input type="number" min={1} max={30} value={followUp2DelayDays} onChange={e => setFollowUp2DelayDays(Number(e.target.value))} style={{ ...S.editInput, width: 56, textAlign: 'center' as const }} />
+                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>days after Follow-up 1</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 10 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Subject (EN) — blank = reuse original</div>
+                              <input value={followUp2SubjectEn} onChange={e => setFollowUp2SubjectEn(e.target.value)} style={S.editInput} placeholder="Re: {competitors} on ChatGPT" />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Subject (FR)</div>
+                              <input value={followUp2SubjectFr} onChange={e => setFollowUp2SubjectFr(e.target.value)} style={S.editInput} placeholder="Re: {competitors} sur ChatGPT" />
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Message (EN)</div>
+                            <textarea value={followUp2BodyEn} onChange={e => setFollowUp2BodyEn(e.target.value)} rows={2} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Message (FR)</div>
+                            <textarea value={followUp2BodyFr} onChange={e => setFollowUp2BodyFr(e.target.value)} rows={2} style={{ ...S.editInput, resize: 'vertical', fontFamily: 'inherit', fontSize: 12 }} />
+                          </div>
                         </div>
-                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Uses same delay ({followUpDelayDays}d after Follow-up 1)</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                        Touch 3 is automatically sent using the same settings. The system supports up to 2 follow-ups per contact.
-                      </div>
+                      )}
                     </div>
                   )}
-
                 </div>
               </div>
               <div style={S.footer}>
