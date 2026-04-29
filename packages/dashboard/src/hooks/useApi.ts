@@ -134,6 +134,8 @@ export function useApi(user: AuthUser | null) {
     senderEmail?: string;
     unsubscribeEnabled?: boolean;
     followUpUnsubscribeEnabled?: boolean;
+    sendWindow?: { enabled: boolean; startHour: number; endHour: number };
+    weekSchedule?: { activeDays: boolean[]; distributionMode: string; customWeights?: number[] };
     followUp?: {
       enabled: boolean;
       delayDays: number;

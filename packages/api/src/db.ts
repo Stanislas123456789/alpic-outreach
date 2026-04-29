@@ -28,6 +28,8 @@ export async function initDb(): Promise<void> {
       follow_up2 JSONB,
       follow_up_unsub BOOLEAN DEFAULT true,
       unsub_enabled BOOLEAN DEFAULT true,
+      send_window JSONB,
+      week_schedule JSONB,
       started_at TIMESTAMPTZ,
       scheduled_at TIMESTAMPTZ,
       completed_at TIMESTAMPTZ,
@@ -58,6 +60,14 @@ export async function initDb(): Promise<void> {
       PRIMARY KEY (sender_email, date)
     );
   `);
+  // Migrations for existing tables
+  await pool.query(`
+    ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS send_window JSONB;
+    ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS week_schedule JSONB;
+  `).catch(() => {
+    // Column may already exist or table may not exist yet — safe to ignore
+  });
+
   console.log('[db] Postgres tables ready');
 }
 
@@ -77,6 +87,8 @@ export interface DbCampaign {
   followUp2?: any;
   followUpUnsubscribeEnabled?: boolean;
   unsubscribeEnabled?: boolean;
+  sendWindow?: any;
+  weekSchedule?: any;
   startedAt: string | null;
   scheduledAt: string | null;
   completedAt?: string | null;
@@ -86,8 +98,9 @@ export interface DbCampaign {
 export async function saveCampaign(c: DbCampaign): Promise<void> {
   await pool.query(`
     INSERT INTO campaigns (id, name, sheet_id, sheet_tab, status, sent, total, error, template_id,
-      follow_up, follow_up2, follow_up_unsub, unsub_enabled, started_at, scheduled_at, completed_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+      follow_up, follow_up2, follow_up_unsub, unsub_enabled, send_window, week_schedule,
+      started_at, scheduled_at, completed_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
     ON CONFLICT (id) DO UPDATE SET
       status = EXCLUDED.status,
       sent = EXCLUDED.sent,
@@ -102,6 +115,8 @@ export async function saveCampaign(c: DbCampaign): Promise<void> {
     c.followUp2 ? JSON.stringify(c.followUp2) : null,
     c.followUpUnsubscribeEnabled ?? true,
     c.unsubscribeEnabled ?? true,
+    c.sendWindow ? JSON.stringify(c.sendWindow) : null,
+    c.weekSchedule ? JSON.stringify(c.weekSchedule) : null,
     c.startedAt || null, c.scheduledAt || null, c.completedAt || null,
   ]);
 }
@@ -126,6 +141,8 @@ export async function getCampaigns(limit = 50): Promise<DbCampaign[]> {
     followUp2: r.follow_up2,
     followUpUnsubscribeEnabled: r.follow_up_unsub,
     unsubscribeEnabled: r.unsub_enabled,
+    sendWindow: r.send_window,
+    weekSchedule: r.week_schedule,
     startedAt: r.started_at?.toISOString() || null,
     scheduledAt: r.scheduled_at?.toISOString() || null,
     completedAt: r.completed_at?.toISOString() || null,

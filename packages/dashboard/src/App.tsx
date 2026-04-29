@@ -169,7 +169,7 @@ function EmptyState({ onAddSource }: { onAddSource: () => void }) {
 export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
-  const { contacts, loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = useAllSheets([activeSource], 30000);
+  const { contacts, loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, followUpMetrics, stats } = useAllSheets([activeSource], 30000);
   const { campaigns: campaignList } = useCampaigns(user);
   const error: string | null = null;
   const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'campaigns' | 'senders' | 'settings'>('overview');
@@ -425,6 +425,7 @@ export default function App() {
         <StatCard label="Open Rate" value={`${stats.openRate}%`} sub="industry avg 25%" color={stats.openRate > 25 ? '#34d399' : '#f59e0b'} />
         <StatCard label="Reply Rate" value={`${stats.replyRate}%`} sub="target >10%" color={stats.replyRate > 10 ? '#34d399' : '#f59e0b'} />
         <StatCard label="Replied" value={contacts.filter(c => c.status === 'replied').length} sub="total replies" color="#34d399" />
+        <StatCard label="Follow-ups Sent" value={followUpMetrics.touch2.sent + followUpMetrics.touch3.sent} sub={`FU1: ${followUpMetrics.touch2.sent} / FU2: ${followUpMetrics.touch3.sent}`} color="#a78bfa" />
       </div>
 
       {/* Sheet error banner */}
@@ -651,6 +652,47 @@ export default function App() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Follow-up Performance */}
+              {(followUpMetrics.touch2.sent > 0 || followUpMetrics.touch3.sent > 0) && (
+                <div className="chart-card full">
+                  <h2>Follow-up Performance</h2>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart
+                      data={[
+                        { name: 'Initial', 'Open Rate': followUpMetrics.touch1.openRate, 'Reply Rate': followUpMetrics.touch1.replyRate },
+                        { name: 'Follow-up 1', 'Open Rate': followUpMetrics.touch2.openRate, 'Reply Rate': followUpMetrics.touch2.replyRate },
+                        { name: 'Follow-up 2', 'Open Rate': followUpMetrics.touch3.openRate, 'Reply Rate': followUpMetrics.touch3.replyRate },
+                      ]}
+                      margin={{ top: 12, right: 20, left: -4, bottom: 0 }}
+                      barCategoryGap="32%"
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fill: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }}
+                        axisLine={false} tickLine={false} tickMargin={8}
+                      />
+                      <YAxis
+                        unit="%" domain={[0, 100]}
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }}
+                        axisLine={false} tickLine={false}
+                      />
+                      <Tooltip
+                        content={<ChartTooltip />}
+                        cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 12, paddingTop: 16 }}
+                        iconType="circle" iconSize={8}
+                        formatter={(value: string) => <span style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }}>{value}</span>}
+                      />
+                      <Bar dataKey="Open Rate" fill="#6366f1" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
+                      <Bar dataKey="Reply Rate" fill="#22c55e" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </>}
           </div>
         )}
@@ -1004,7 +1046,7 @@ export default function App() {
               {/* ── Table ── */}
               <div className="chart-card full" style={{ padding: 0, overflow: 'hidden' }}>
                 <div className="table-wrap" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 360px)' }}>
-                  <table className="pipeline-table" style={{ tableLayout: 'fixed', minWidth: 900, width: '100%' }}>
+                  <table className="pipeline-table" style={{ tableLayout: 'fixed', minWidth: 960, width: '100%' }}>
                     <colgroup>
                       <col style={{ width: 120 }} />
                       <col style={{ width: 170 }} />
@@ -1012,6 +1054,7 @@ export default function App() {
                       <col style={{ width: 76 }} />
                       <col style={{ width: 110 }} />
                       <col style={{ width: 105 }} />
+                      <col style={{ width: 60 }} />
                       <col style={{ width: 80 }} />
                       <col style={{ width: 70 }} />
                       <col style={{ width: 100 }} />
@@ -1024,6 +1067,7 @@ export default function App() {
                         <SortTh col="country" label="Country" align="center" />
                         <SortTh col="assignedTo" label="Assigned" />
                         <SortTh col="status" label="Status" />
+                        <StaticTh label="Touch" />
                         <StaticTh label="LinkedIn" />
                         <SortTh col="opens" label="Opens" align="center" />
                         <SortTh col="sentAt" label="Sent At" />
@@ -1085,6 +1129,21 @@ export default function App() {
                             </div>
                           </td>
                           <td style={{ padding: '8px 13px' }}>
+                            {(() => {
+                              const touch = c.touch3SentAt ? 'FU2' : c.touch2SentAt ? 'FU1' : c.sentAt ? 'Initial' : '—';
+                              const touchColor = touch === 'FU2' ? '#f59e0b' : touch === 'FU1' ? '#a78bfa' : touch === 'Initial' ? '#6366f1' : 'var(--border)';
+                              return touch !== '—' ? (
+                                <span style={{
+                                  background: touchColor + '20', color: touchColor,
+                                  fontSize: 10, padding: '2px 7px', borderRadius: 4, fontWeight: 700,
+                                  whiteSpace: 'nowrap', display: 'inline-block',
+                                }}>
+                                  {touch}
+                                </span>
+                              ) : <span style={{ color: 'var(--border)' }}>—</span>;
+                            })()}
+                          </td>
+                          <td style={{ padding: '8px 13px' }}>
                             {c.linkedIn ? (
                               <a href={c.linkedIn} target="_blank" rel="noopener noreferrer"
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#0a66c2', fontSize: 11, fontWeight: 600, textDecoration: 'none', background: '#0a66c211', border: '1px solid #0a66c222', borderRadius: 4, padding: '2px 7px' }}
@@ -1112,7 +1171,7 @@ export default function App() {
                       ))}
                       {sorted.length === 0 && (
                         <tr>
-                          <td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '64px 32px' }}>
+                          <td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '64px 32px' }}>
                             <div style={{ fontSize: 32, marginBottom: 10 }}>🔍</div>
                             <div style={{ fontWeight: 600, marginBottom: 4 }}>No contacts match</div>
                             <div style={{ fontSize: 11 }}>Try adjusting your filters</div>

@@ -32,7 +32,7 @@ async function fetchSheetData(sheetId: string, sheetTab: string): Promise<Contac
   // Quote tab names with spaces/apostrophes (Google Sheets A1 notation requirement),
   // then encode the whole range for the REST API URL path.
   const safeTab = /[\s']/.test(sheetTab) ? `'${sheetTab.replace(/'/g, "\\'")}'` : sheetTab;
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(safeTab + '!A2:AE')}?key=${API_KEY}`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(safeTab + '!A2:AJ')}?key=${API_KEY}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Sheets API error: ${res.status}`);
   const json = await res.json();
@@ -69,6 +69,9 @@ async function fetchSheetData(sheetId: string, sheetTab: string): Promise<Contac
       firstOpenAt: row[SHEET_COLUMNS.firstOpenAt] || '',
       repliedAt: row[SHEET_COLUMNS.repliedAt] || '',
       bounceReason: row[SHEET_COLUMNS.bounceReason] || '',
+      touch2SentAt: row[SHEET_COLUMNS.touch2SentAt] || '',
+      touch3SentAt: row[SHEET_COLUMNS.touch3SentAt] || '',
+      optedOut: (row[SHEET_COLUMNS.optedOut] || '').toLowerCase() === 'true',
     }));
 }
 
@@ -167,6 +170,62 @@ export function computeFunnel(contacts: Contact[]) {
   ];
 }
 
+export interface FollowUpTouchMetrics {
+  sent: number;
+  opened: number;
+  replied: number;
+  openRate: number;
+  replyRate: number;
+}
+
+export function computeFollowUpMetrics(contacts: Contact[]): {
+  touch1: FollowUpTouchMetrics;
+  touch2: FollowUpTouchMetrics;
+  touch3: FollowUpTouchMetrics;
+} {
+  // Touch 1 = contacts with sentAt (initial send)
+  const touch1Contacts = contacts.filter(c => c.sentAt && c.status !== 'pending' && c.status !== 'invalid');
+  const touch1Sent = touch1Contacts.length;
+  const touch1Opened = touch1Contacts.filter(c => c.openCount > 0 || c.status === 'opened' || c.status === 'replied').length;
+  const touch1Replied = touch1Contacts.filter(c => c.status === 'replied').length;
+
+  // Touch 2 = contacts with touch2SentAt
+  const touch2Contacts = contacts.filter(c => c.touch2SentAt);
+  const touch2Sent = touch2Contacts.length;
+  const touch2Opened = touch2Contacts.filter(c => c.openCount > 0 || c.status === 'opened' || c.status === 'replied').length;
+  const touch2Replied = touch2Contacts.filter(c => c.status === 'replied').length;
+
+  // Touch 3 = contacts with touch3SentAt
+  const touch3Contacts = contacts.filter(c => c.touch3SentAt);
+  const touch3Sent = touch3Contacts.length;
+  const touch3Opened = touch3Contacts.filter(c => c.openCount > 0 || c.status === 'opened' || c.status === 'replied').length;
+  const touch3Replied = touch3Contacts.filter(c => c.status === 'replied').length;
+
+  return {
+    touch1: {
+      sent: touch1Sent,
+      opened: touch1Opened,
+      replied: touch1Replied,
+      openRate: touch1Sent > 0 ? Math.round((touch1Opened / touch1Sent) * 100) : 0,
+      replyRate: touch1Sent > 0 ? Math.round((touch1Replied / touch1Sent) * 100) : 0,
+    },
+    touch2: {
+      sent: touch2Sent,
+      opened: touch2Opened,
+      replied: touch2Replied,
+      openRate: touch2Sent > 0 ? Math.round((touch2Opened / touch2Sent) * 100) : 0,
+      replyRate: touch2Sent > 0 ? Math.round((touch2Replied / touch2Sent) * 100) : 0,
+    },
+    touch3: {
+      sent: touch3Sent,
+      opened: touch3Opened,
+      replied: touch3Replied,
+      openRate: touch3Sent > 0 ? Math.round((touch3Opened / touch3Sent) * 100) : 0,
+      replyRate: touch3Sent > 0 ? Math.round((touch3Replied / touch3Sent) * 100) : 0,
+    },
+  };
+}
+
 // ─── Multi-sheet aggregate hook ───────────────────────────────────────────────
 
 import type { SheetSource } from './useConfig';
@@ -210,6 +269,7 @@ export function useAllSheets(sources: SheetSource[], refreshInterval = 30000) {
   const repMetrics = computeRepMetrics(contacts);
   const industryMetrics = computeIndustryMetrics(contacts);
   const funnel = computeFunnel(contacts);
+  const followUpMetrics = computeFollowUpMetrics(contacts);
   const totalSent = contacts.filter(c => c.status !== 'pending' && c.status !== 'invalid').length;
   const totalPending = contacts.filter(c => c.status === 'pending').length;
   const bounceRate = totalSent > 0 ? Math.round((contacts.filter(c => c.status === 'bounced').length / totalSent) * 100) : 0;
@@ -218,7 +278,7 @@ export function useAllSheets(sources: SheetSource[], refreshInterval = 30000) {
 
   return {
     contacts, loading, lastUpdated, refresh, sheetErrors,
-    repMetrics, industryMetrics, funnel,
+    repMetrics, industryMetrics, funnel, followUpMetrics,
     stats: { totalSent, totalPending, bounceRate, openRate, replyRate },
   };
 }

@@ -36,6 +36,10 @@ export interface Contact {
   firstOpenAt?: string;
   repliedAt?: string;
   bounceReason?: string;
+  // Follow-up touches
+  touch2SentAt?: string;
+  touch3SentAt?: string;
+  optedOut?: boolean;
 }
 
 export interface RepMetrics {
@@ -73,4 +77,10 @@ export const SHEET_COLUMNS = {
   status: 22, assignedTo: 23, sentAt: 24, messageId: 25,
   threadId: 26, openCount: 27, firstOpenAt: 28, repliedAt: 29,
   bounceReason: 30,
+  // Follow-up zone (AF–AJ, cols 31–35)
+  touch2SentAt: 31,
+  touch2MessageId: 32,
+  touch3SentAt: 33,
+  touch3MessageId: 34,
+  optedOut: 35,
 } as const;

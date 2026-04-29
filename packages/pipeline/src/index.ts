@@ -13,6 +13,7 @@ import { buildSubject, buildBody, buildTrackingSnippet, previewEmail } from './t
 import { pickSender, sendEmail, createDraft, resetDailyCounters, getSendStats } from './gmail';
 import { checkReplies, checkBounces } from './tracker';
 import { Contact } from './types';
+import { isWithinSendWindow, getCurrentDayInTimezone, countryToTimezone } from './timezone';
 
 const DRY_RUN = process.env.DRY_RUN === 'true';
 const TEST_EMAIL = process.env.TEST_EMAIL || '';
@@ -214,6 +215,8 @@ export async function runPipeline(options?: {
   maxDelay?: number;
   draftMode?: boolean;
   unsubscribeEnabled?: boolean;
+  sendWindow?: { enabled: boolean; startHour: number; endHour: number };
+  weekSchedule?: { activeDays: boolean[]; distributionMode: string; customWeights?: number[] };
 }): Promise<void> {
   const {
     onProgress,
@@ -223,6 +226,8 @@ export async function runPipeline(options?: {
     maxDelay = MAX_DELAY,
     draftMode = false,
     unsubscribeEnabled = true,
+    sendWindow,
+    weekSchedule,
   } = options || {};
 
   log(chalk.bold('🚀 Starting Alpic Outreach Pipeline'));
@@ -263,11 +268,67 @@ export async function runPipeline(options?: {
     return;
   }
 
+  // Check week schedule: is today an active send day?
+  if (weekSchedule?.activeDays) {
+    const today = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    if (!weekSchedule.activeDays[today]) {
+      log(`Today (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][today]}) is not an active send day. Skipping pipeline run.`, 'warn');
+      return;
+    }
+  }
+
+  // Calculate daily allocation based on distribution mode
+  let dailyAllocation = contacts.length;
+  if (weekSchedule?.activeDays) {
+    const activeDayCount = weekSchedule.activeDays.filter(Boolean).length;
+    if (activeDayCount > 0) {
+      const today = new Date().getDay();
+      if (weekSchedule.distributionMode === 'even') {
+        dailyAllocation = Math.ceil(contacts.length / activeDayCount);
+      } else if (weekSchedule.distributionMode === 'front-loaded') {
+        // Front-loaded: 40/25/20/10/5% across active days
+        const frontWeights = [40, 25, 20, 10, 5];
+        const activeDayIndex = weekSchedule.activeDays.slice(0, today + 1).filter(Boolean).length - 1;
+        const weightIndex = Math.min(activeDayIndex, frontWeights.length - 1);
+        const weight = frontWeights[weightIndex] || frontWeights[frontWeights.length - 1];
+        dailyAllocation = Math.ceil((contacts.length * weight) / 100);
+      } else if (weekSchedule.distributionMode === 'custom' && weekSchedule.customWeights) {
+        const weight = weekSchedule.customWeights[today] || 0;
+        dailyAllocation = Math.ceil((contacts.length * weight) / 100);
+      }
+      contacts = contacts.slice(0, dailyAllocation);
+      log(`Daily allocation: ${dailyAllocation} contacts (${weekSchedule.distributionMode} distribution)`);
+    }
+  }
+
   onProgress?.({ type: 'start', total: contacts.length, timestamp: new Date().toISOString() });
 
   // Process each contact with delay
   for (let i = 0; i < contacts.length; i++) {
     const contact = contacts[i];
+
+    // Check timezone-aware send window for this contact
+    if (sendWindow?.enabled) {
+      const inWindow = isWithinSendWindow(
+        contact.country || '',
+        sendWindow.startHour,
+        sendWindow.endHour,
+      );
+      if (!inWindow) {
+        const tz = countryToTimezone(contact.country || '');
+        log(`Skipping ${contact.email} — outside send window in ${tz} (${contact.country || 'unknown'})`, 'warn');
+        onProgress?.({
+          type: 'skipped',
+          contactId: contact.id,
+          email: contact.email,
+          firstName: contact.firstName,
+          company: contact.company,
+          error: `Outside send window for timezone ${tz}`,
+          timestamp: new Date().toISOString(),
+        });
+        continue;
+      }
+    }
 
     await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode, unsubscribeEnabled);
 

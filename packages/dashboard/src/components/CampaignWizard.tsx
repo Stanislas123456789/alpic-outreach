@@ -8,6 +8,19 @@ import SendLiveView from './SendLiveView';
 
 type WizardStep = 'sheet' | 'audience' | 'configure' | 'template' | 'followup' | 'review' | 'live';
 type SpeedMode = 'slow' | 'normal' | 'fast';
+type DistributionMode = 'even' | 'front-loaded' | 'custom';
+
+interface SendWindow {
+  enabled: boolean;
+  startHour: number;
+  endHour: number;
+}
+
+interface WeekSchedule {
+  activeDays: boolean[]; // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
+  distributionMode: DistributionMode;
+  customWeights?: number[]; // percentages per active day (must sum to 100)
+}
 
 interface LaunchOpts {
   excludeIds: string[];
@@ -20,6 +33,8 @@ interface LaunchOpts {
   senderEmail: string;
   unsubscribeEnabled?: boolean;
   followUpUnsubscribeEnabled?: boolean;
+  sendWindow?: SendWindow;
+  weekSchedule?: WeekSchedule;
   followUp?: {
     enabled: boolean;
     delayDays: number;
@@ -108,6 +123,19 @@ const SPEED_OPTIONS: { id: SpeedMode; label: string; desc: string; color: string
   { id: 'fast', label: 'Rapid', desc: '30–60 sec between emails', color: '#f87171', icon: '⚡' },
 ];
 
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
+const DISTRIBUTION_OPTIONS: { id: DistributionMode; label: string; desc: string; icon: string; color: string }[] = [
+  { id: 'even', label: 'Even', desc: 'Split equally across active days', icon: '=', color: '#34d399' },
+  { id: 'front-loaded', label: 'Front-loaded', desc: '40/25/20/10/5% across days', icon: '>', color: '#f59e0b' },
+  { id: 'custom', label: 'Custom', desc: 'Set per-day percentages', icon: '%', color: '#6366f1' },
+];
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
+  value: i,
+  label: `${i.toString().padStart(2, '0')}:00`,
+}));
+
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function parseWeekAdded(weekAdded?: string): Date | null {
@@ -185,6 +213,16 @@ export default function CampaignWizard({
   const [draftMode, setDraftMode] = useState(false);
   const [unsubscribeEnabled, setUnsubscribeEnabled] = useState(false);
   const [followUpUnsubscribeEnabled, setFollowUpUnsubscribeEnabled] = useState(true);
+
+  // Send window
+  const [sendWindowEnabled, setSendWindowEnabled] = useState(true);
+  const [sendWindowStart, setSendWindowStart] = useState(9);
+  const [sendWindowEnd, setSendWindowEnd] = useState(17);
+
+  // Week schedule
+  const [activeDays, setActiveDays] = useState<boolean[]>([false, true, true, true, true, true, false]); // Mon-Fri
+  const [distributionMode, setDistributionMode] = useState<DistributionMode>('even');
+  const [customWeights, setCustomWeights] = useState<number[]>([20, 20, 20, 20, 20, 0, 0]);
 
   // Sender selection — locked to the logged-in user to prevent cross-user sends
   const [senderEmail] = useState<string>(user.email);
@@ -453,6 +491,16 @@ export default function CampaignWizard({
         senderEmail,
         unsubscribeEnabled,
         followUpUnsubscribeEnabled,
+        sendWindow: {
+          enabled: sendWindowEnabled,
+          startHour: sendWindowStart,
+          endHour: sendWindowEnd,
+        },
+        weekSchedule: {
+          activeDays,
+          distributionMode,
+          customWeights: distributionMode === 'custom' ? customWeights : undefined,
+        },
         followUp: followUpEnabled ? {
           enabled: true,
           delayDays: followUpDelayDays,
@@ -865,6 +913,166 @@ export default function CampaignWizard({
                     </div>
                   </div>
 
+                  {/* Send Window */}
+                  <div>
+                    <div style={S.sectionLabel}>Send window</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                      <button
+                        onClick={() => setSendWindowEnabled(p => !p)}
+                        style={{
+                          padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                          border: `1px solid ${sendWindowEnabled ? 'var(--accent)' : 'var(--border)'}`,
+                          background: sendWindowEnabled ? 'var(--accent)' : 'none',
+                          color: sendWindowEnabled ? 'white' : 'var(--text-secondary)',
+                          cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                        }}
+                      >{sendWindowEnabled ? 'Enabled' : 'Disabled'}</button>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                        Deliver at optimal time for each recipient's timezone
+                      </span>
+                    </div>
+                    {sendWindowEnabled && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Send between</span>
+                        <select
+                          value={sendWindowStart}
+                          onChange={e => setSendWindowStart(Number(e.target.value))}
+                          style={{ ...S.editInput, width: 90, padding: '6px 8px', fontSize: 12 }}
+                        >
+                          {HOUR_OPTIONS.map(h => (
+                            <option key={h.value} value={h.value}>{h.label}</option>
+                          ))}
+                        </select>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>and</span>
+                        <select
+                          value={sendWindowEnd}
+                          onChange={e => setSendWindowEnd(Number(e.target.value))}
+                          style={{ ...S.editInput, width: 90, padding: '6px 8px', fontSize: 12 }}
+                        >
+                          {HOUR_OPTIONS.map(h => (
+                            <option key={h.value} value={h.value}>{h.label}</option>
+                          ))}
+                        </select>
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>in recipient's local time</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Send Schedule */}
+                  <div>
+                    <div style={S.sectionLabel}>Send schedule</div>
+                    {/* Day-of-week toggles */}
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Active days</div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {DAY_LABELS.map((label, i) => {
+                          const active = activeDays[i];
+                          return (
+                            <button
+                              key={label}
+                              onClick={() => {
+                                const next = [...activeDays];
+                                next[i] = !next[i];
+                                setActiveDays(next);
+                              }}
+                              style={{
+                                width: 44, height: 36, borderRadius: 8,
+                                border: `2px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                                background: active ? 'var(--accent)18' : 'var(--bg)',
+                                color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                                fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                                fontFamily: "'DM Sans', sans-serif", transition: 'all 0.15s',
+                              }}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Distribution mode */}
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Distribution</div>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        {DISTRIBUTION_OPTIONS.map(opt => (
+                          <button
+                            key={opt.id}
+                            style={{
+                              ...S.speedCard,
+                              borderColor: distributionMode === opt.id ? opt.color : 'var(--border)',
+                              background: distributionMode === opt.id ? `${opt.color}18` : 'var(--bg)',
+                            }}
+                            onClick={() => setDistributionMode(opt.id)}
+                          >
+                            <div style={{ fontSize: 16, marginBottom: 6, fontWeight: 700 }}>{opt.icon}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: distributionMode === opt.id ? opt.color : 'var(--text)' }}>
+                              {opt.label}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>{opt.desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Custom weights editor */}
+                    {distributionMode === 'custom' && (
+                      <div style={{
+                        background: 'var(--bg)', border: '1px solid var(--border)',
+                        borderRadius: 10, padding: '12px 16px',
+                      }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {DAY_LABELS.map((label, i) => (
+                            activeDays[i] && (
+                              <div key={label} style={{ display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)' }}>{label}</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={customWeights[i]}
+                                  onChange={e => {
+                                    const next = [...customWeights];
+                                    next[i] = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                                    setCustomWeights(next);
+                                  }}
+                                  style={{ ...S.editInput, width: 50, textAlign: 'center' as const, fontSize: 12, padding: '4px 6px' }}
+                                />
+                                <span style={{ fontSize: 9, color: 'var(--text-secondary)' }}>%</span>
+                              </div>
+                            )
+                          ))}
+                        </div>
+                        {(() => {
+                          const total = customWeights.filter((_, i) => activeDays[i]).reduce((a, b) => a + b, 0);
+                          return (
+                            <div style={{ marginTop: 8, fontSize: 11, color: total === 100 ? '#34d399' : '#f87171', fontWeight: 600 }}>
+                              Total: {total}% {total !== 100 && '(must equal 100%)'}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {/* Daily cap display */}
+                    {(() => {
+                      const activeDayCount = activeDays.filter(Boolean).length;
+                      const emailsPerDay = activeDayCount > 0 ? Math.round(finalContacts.length / activeDayCount) : 0;
+                      return activeDayCount > 0 ? (
+                        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <span style={{ color: 'var(--accent)', fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>
+                            ~{emailsPerDay}
+                          </span>
+                          <span>emails/day across {activeDayCount} active days</span>
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 12, fontSize: 12, color: '#f87171', fontWeight: 600 }}>
+                          No active days selected — emails won't be sent
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   {/* Summary */}
                   <div style={S.summaryBox}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Campaign summary</div>
@@ -877,6 +1085,8 @@ export default function CampaignWizard({
                         ['Emails', `${finalContacts.length} to send (max ${maxEmails}, max ${maxPerCompany}/company)`],
                         ['Speed', SPEED_OPTIONS.find(o => o.id === speedMode)?.label || speedMode],
                         ['Mode', draftMode ? 'Draft (no emails sent)' : 'Live send'],
+                        ['Send window', sendWindowEnabled ? `${sendWindowStart}:00–${sendWindowEnd}:00 (recipient tz)` : 'Disabled'],
+                        ['Schedule', `${activeDays.filter(Boolean).length} days/week, ${distributionMode} distribution`],
                       ].map(([label, val]) => (
                         <div key={label} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
                           <span style={{ color: 'var(--text-secondary)', minWidth: 80 }}>{label}</span>

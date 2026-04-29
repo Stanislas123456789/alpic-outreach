@@ -68,6 +68,8 @@ interface Campaign {
   followUp?: CampaignFollowUp;
   followUp2?: CampaignFollowUp;
   followUpUnsubscribeEnabled?: boolean;
+  sendWindow?: { enabled: boolean; startHour: number; endHour: number };
+  weekSchedule?: { activeDays: boolean[]; distributionMode: string; customWeights?: number[] };
   scheduledTimer?: ReturnType<typeof setTimeout>; // internal, not serialized
 }
 
@@ -98,6 +100,8 @@ export async function loadCampaignsFromDb(): Promise<void> {
         followUp: r.followUp,
         followUp2: r.followUp2,
         followUpUnsubscribeEnabled: r.followUpUnsubscribeEnabled,
+        sendWindow: r.sendWindow,
+        weekSchedule: r.weekSchedule,
         startedAt: r.startedAt,
         scheduledAt: r.scheduledAt,
         log: [],
@@ -127,6 +131,8 @@ function saveCampaignToDb(c: Campaign): void {
     followUp: c.followUp,
     followUp2: c.followUp2,
     followUpUnsubscribeEnabled: c.followUpUnsubscribeEnabled,
+    sendWindow: c.sendWindow,
+    weekSchedule: c.weekSchedule,
     startedAt: c.startedAt,
     scheduledAt: c.scheduledAt,
     completedAt: c.status === 'done' || c.status === 'error' ? new Date().toISOString() : null,
@@ -206,6 +212,8 @@ async function executeCampaign(
   draftMode?: boolean,
   senderEmail?: string,
   unsubscribeEnabled?: boolean,
+  sendWindow?: { enabled: boolean; startHour: number; endHour: number },
+  weekSchedule?: { activeDays: boolean[]; distributionMode: string; customWeights?: number[] },
 ) {
   campaign.status = 'running';
   campaign.startedAt = new Date().toISOString();
@@ -237,6 +245,8 @@ async function executeCampaign(
       maxDelay,
       draftMode,
       unsubscribeEnabled,
+      sendWindow: sendWindow || campaign.sendWindow,
+      weekSchedule: weekSchedule || campaign.weekSchedule,
       onProgress: (event: ProgressEvent) => {
         campaign.log.push(event);
         if (event.type === 'start' && event.total != null) {
@@ -293,6 +303,8 @@ router.post('/run', async (req: Request, res: Response) => {
   const senderEmail: string | undefined = req.body?.senderEmail || (req.headers['x-auth-email'] as string | undefined);
   const unsubscribeEnabled: boolean = req.body?.unsubscribeEnabled !== false; // default true
   const followUpUnsubscribeEnabled: boolean = req.body?.followUpUnsubscribeEnabled !== false; // default true
+  const sendWindow = req.body?.sendWindow || undefined;
+  const weekSchedule = req.body?.weekSchedule || undefined;
 
   // Check if another campaign is already running for the same sheetId+sheetTab
   for (const c of campaigns.values()) {
@@ -345,6 +357,8 @@ router.post('/run', async (req: Request, res: Response) => {
     followUp,
     followUp2,
     followUpUnsubscribeEnabled,
+    sendWindow,
+    weekSchedule,
   };
 
   campaigns.set(campaignId, campaign);
@@ -357,7 +371,7 @@ router.post('/run', async (req: Request, res: Response) => {
   if (isInFuture) {
     const delay = scheduleTime.getTime() - now.getTime();
     campaign.scheduledTimer = setTimeout(() => {
-      executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled);
+      executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled, sendWindow, weekSchedule);
     }, delay);
 
     res.json({
@@ -380,7 +394,7 @@ router.post('/run', async (req: Request, res: Response) => {
     });
 
     // Run async after responding
-    executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled);
+    executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled, sendWindow, weekSchedule);
   }
 });
 

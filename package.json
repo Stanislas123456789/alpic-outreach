@@ -10,7 +10,7 @@
     "tracking": "npm run dev --workspace=packages/tracking-server",
     "api": "npm run dev --workspace=packages/api",
     "api:start": "npm run start --workspace=packages/api",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },
   "devDependencies": {

@@ -8,3 +8,5 @@ dist/
 tokens/
 credentials/
 .vercel
+.github/
+.claude/worktrees/
