@@ -78,18 +78,19 @@ export function computeRepMetrics(contacts: Contact[]): RepMetrics[] {
   const repMap = new Map<string, RepMetrics>();
 
   for (const c of contacts) {
-    if (!c.assignedTo || !c.assignedTo.includes('@') || c.status === 'pending' || c.status === 'invalid') continue;
+    if (!c.assignedTo || c.status === 'pending' || c.status === 'invalid') continue;
 
-    if (!repMap.has(c.assignedTo)) {
-      repMap.set(c.assignedTo, {
+    const repKey = c.assignedTo.toLowerCase().trim();
+    if (!repMap.has(repKey)) {
+      repMap.set(repKey, {
         repEmail: c.assignedTo,
-        repName: c.assignedTo.split('@')[0],
+        repName: c.assignedTo.includes('@') ? c.assignedTo.split('@')[0] : c.assignedTo,
         sent: 0, bounced: 0, opened: 0, replied: 0,
         bounceRate: 0, openRate: 0, replyRate: 0,
       });
     }
 
-    const m = repMap.get(c.assignedTo)!;
+    const m = repMap.get(repKey)!;
     m.sent++;
     if (c.status === 'bounced') m.bounced++;
     if (c.status === 'opened' || c.openCount > 0) m.opened++;
