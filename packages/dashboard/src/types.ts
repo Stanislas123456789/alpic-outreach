@@ -53,11 +53,14 @@ export interface RepMetrics {
 export interface IndustryMetrics {
   industry: Industry;
   sent: number;
+  delivered: number;
   bounced: number;
   opened: number;
   replied: number;
   openRate: number;
   replyRate: number;
+  bounceRate: number;
+  deliveryRate: number;
 }
 
 // Master Table tab of sales_pipe_master sheet

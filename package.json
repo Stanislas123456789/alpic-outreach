@@ -1,12 +1,19 @@
 {
   "name": "alpic-outreach",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "pipeline": "npm run start --workspace=packages/pipeline",
     "dashboard": "npm run dev --workspace=packages/dashboard",
     "tracking": "npm run dev --workspace=packages/tracking-server",
     "api": "npm run dev --workspace=packages/api",
-    "api:start": "npm run start --workspace=packages/api"
+    "api:start": "npm run start --workspace=packages/api",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.5"
   }
 }

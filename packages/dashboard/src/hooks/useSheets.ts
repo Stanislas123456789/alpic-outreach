@@ -128,8 +128,8 @@ export function computeIndustryMetrics(contacts: Contact[]): IndustryMetrics[] {
     if (!industryMap.has(c.industry)) {
       industryMap.set(c.industry, {
         industry: c.industry,
-        sent: 0, bounced: 0, opened: 0, replied: 0,
-        openRate: 0, replyRate: 0,
+        sent: 0, delivered: 0, bounced: 0, opened: 0, replied: 0,
+        openRate: 0, replyRate: 0, bounceRate: 0, deliveryRate: 0,
       });
     }
 
@@ -140,11 +140,17 @@ export function computeIndustryMetrics(contacts: Contact[]): IndustryMetrics[] {
     if (c.status === 'replied') m.replied++;
   }
 
-  return Array.from(industryMap.values()).map(m => ({
-    ...m,
-    openRate: m.sent > 0 ? Math.round((m.opened / m.sent) * 100) : 0,
-    replyRate: m.sent > 0 ? Math.round((m.replied / m.sent) * 100) : 0,
-  })).sort((a, b) => b.sent - a.sent);
+  return Array.from(industryMap.values()).map(m => {
+    const delivered = m.sent - m.bounced;
+    return {
+      ...m,
+      delivered,
+      openRate: m.sent > 0 ? Math.round((m.opened / m.sent) * 100) : 0,
+      replyRate: m.sent > 0 ? Math.round((m.replied / m.sent) * 100) : 0,
+      bounceRate: m.sent > 0 ? Math.round((m.bounced / m.sent) * 100) : 0,
+      deliveryRate: m.sent > 0 ? Math.round((delivered / m.sent) * 100) : 0,
+    };
+  }).sort((a, b) => b.sent - a.sent);
 }
 
 export function computeFunnel(contacts: Contact[]) {
