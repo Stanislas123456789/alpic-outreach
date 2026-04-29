@@ -7,7 +7,7 @@ import {
 import { useAllSheets } from './hooks/useSheets';
 import { useAuth } from './hooks/useAuth';
 import { useConfig } from './hooks/useConfig';
-import { useApi } from './hooks/useApi';
+import { useApi, useCampaigns } from './hooks/useApi';
 import LoginPage from './components/LoginPage';
 import SourceModal from './components/SourceModal';
 import SenderPanel from './components/SenderPanel';
@@ -170,8 +170,9 @@ export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
   const { contacts, loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = useAllSheets([activeSource], 30000);
+  const { campaigns: campaignList } = useCampaigns(user);
   const error: string | null = null;
-  const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'campaigns' | 'senders' | 'settings'>('overview');
   const [showSources, setShowSources] = useState(false);
   const [showLogoMenu, setShowLogoMenu] = useState(false);
   const [pipelineStatusFilter, setPipelineStatusFilter] = useState<string>('all');
@@ -192,6 +193,34 @@ export default function App() {
     localStorage.setItem('alpic_theme', theme);
   }, [theme]);
   const api = useApi(user);
+
+  // Per-campaign performance: cross-reference campaign sentEmails with sheet contact data
+  const campaignPerformance = useMemo(() => {
+    if (!campaignList.length || !contacts.length) return [];
+    const contactByEmail = new Map(contacts.map(c => [c.email.toLowerCase(), c]));
+    return campaignList
+      .filter(c => c.status === 'done' || c.status === 'running')
+      .map(c => {
+        const emails = c.sentEmails || [];
+        const matched = emails.map(e => contactByEmail.get(e.toLowerCase())).filter(Boolean);
+        const sent = matched.length;
+        const opened = matched.filter(m => m!.openCount > 0 || m!.status === 'opened' || m!.status === 'replied').length;
+        const replied = matched.filter(m => m!.status === 'replied').length;
+        const bounced = matched.filter(m => m!.status === 'bounced').length;
+        return {
+          ...c,
+          perf: {
+            sent,
+            opened,
+            replied,
+            bounced,
+            openRate: sent > 0 ? Math.round((opened / sent) * 100) : 0,
+            replyRate: sent > 0 ? Math.round((replied / sent) * 100) : 0,
+            bounceRate: sent > 0 ? Math.round((bounced / sent) * 100) : 0,
+          },
+        };
+      });
+  }, [campaignList, contacts]);
 
   // Daily metrics for chronological chart
   const dailyMetrics = useMemo(() => {
@@ -409,7 +438,7 @@ export default function App() {
 
       {/* Tabs */}
       <nav className="tabs">
-        {(['overview', 'reps', 'industries', 'pipeline', 'settings'] as const).map(tab => (
+        {(['overview', 'reps', 'industries', 'pipeline', 'campaigns', 'settings'] as const).map(tab => (
           <button
             key={tab}
             className={`tab ${activeTab === tab ? 'active' : ''}`}
@@ -713,27 +742,53 @@ export default function App() {
                   <div className="industry-header">
                     <div className="industry-dot" style={{ background: INDUSTRY_COLORS[ind.industry] || '#6366f1' }} />
                     <h3>{ind.industry}</h3>
+                    <span className="ind-total">{ind.sent} sent</span>
                   </div>
-                  <div className="industry-stats">
-                    <div className="ind-stat"><span>Sent</span><strong>{ind.sent}</strong></div>
-                    <div className="ind-stat"><span>Bounced</span><strong style={{ color: '#f87171' }}>{ind.bounced}</strong></div>
-                    <div className="ind-stat"><span>Opened</span><strong style={{ color: '#a78bfa' }}>{ind.opened}</strong></div>
-                    <div className="ind-stat"><span>Replied</span><strong style={{ color: '#34d399' }}>{ind.replied}</strong></div>
-                  </div>
-                  <div className="ind-rates">
-                    <div className="rate-bar">
-                      <span>Open</span>
-                      <div className="rate-track">
-                        <div className="rate-fill" style={{ width: `${ind.openRate}%`, background: '#a78bfa' }} />
-                      </div>
-                      <span>{ind.openRate}%</span>
+
+                  {/* Funnel bar */}
+                  <div className="ind-funnel">
+                    <div className="funnel-track">
+                      <div className="funnel-segment funnel-delivered" style={{ width: '100%' }} />
+                      <div className="funnel-segment funnel-opened" style={{ width: `${ind.openRate}%` }} />
+                      <div className="funnel-segment funnel-replied" style={{ width: `${ind.replyRate}%` }} />
                     </div>
-                    <div className="rate-bar">
-                      <span>Reply</span>
-                      <div className="rate-track">
-                        <div className="rate-fill" style={{ width: `${ind.replyRate}%`, background: '#34d399' }} />
-                      </div>
-                      <span>{ind.replyRate}%</span>
+                  </div>
+
+                  {/* Counts row */}
+                  <div className="industry-stats">
+                    <div className="ind-stat">
+                      <span>Delivered</span>
+                      <strong>{ind.delivered}</strong>
+                    </div>
+                    <div className="ind-stat">
+                      <span>Opened</span>
+                      <strong style={{ color: '#a78bfa' }}>{ind.opened}</strong>
+                    </div>
+                    <div className="ind-stat">
+                      <span>Replied</span>
+                      <strong style={{ color: '#34d399' }}>{ind.replied}</strong>
+                    </div>
+                    <div className="ind-stat">
+                      <span>Bounced</span>
+                      <strong style={{ color: '#f87171' }}>{ind.bounced}</strong>
+                    </div>
+                  </div>
+
+                  {/* Rates row */}
+                  <div className="ind-rates-row">
+                    <div className="ind-rate-item">
+                      <span className="ind-rate-value" style={{ color: '#a78bfa' }}>{ind.openRate}%</span>
+                      <span className="ind-rate-label">Open Rate</span>
+                    </div>
+                    <div className="ind-rate-divider" />
+                    <div className="ind-rate-item">
+                      <span className="ind-rate-value" style={{ color: '#34d399' }}>{ind.replyRate}%</span>
+                      <span className="ind-rate-label">Reply Rate</span>
+                    </div>
+                    <div className="ind-rate-divider" />
+                    <div className="ind-rate-item">
+                      <span className="ind-rate-value" style={{ color: '#f87171' }}>{ind.bounceRate}%</span>
+                      <span className="ind-rate-label">Bounce Rate</span>
                     </div>
                   </div>
                 </div>
@@ -745,21 +800,21 @@ export default function App() {
 
             {industryMetrics.length > 0 && (
               <div className="chart-card full" style={{ marginTop: 8 }}>
-                <h2>Industry Volume vs Reply Rate</h2>
+                <h2>Industry Performance</h2>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={industryMetrics} margin={{ top: 10, right: 16, left: -8, bottom: 0 }} barCategoryGap="30%">
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
                     <XAxis dataKey="industry" tick={{ fill: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }} axisLine={false} tickLine={false} tickMargin={8} />
-                    <YAxis yAxisId="left" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="right" orientation="right" unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }} axisLine={false} tickLine={false} />
+                    <YAxis unit="%" domain={[0, 100]} tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }} axisLine={false} tickLine={false} />
                     <Tooltip
                       content={<ChartTooltip />}
                       cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }}
                     />
                     <Legend wrapperStyle={{ fontSize: 12, paddingTop: 16 }} iconType="circle" iconSize={8}
                       formatter={(value: string) => <span style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }}>{value}</span>} />
-                    <Bar yAxisId="left" dataKey="sent" name="Emails Sent" fill="#6366f1" radius={[6, 6, 2, 2]} fillOpacity={0.75} />
-                    <Bar yAxisId="right" dataKey="replyRate" name="Reply %" fill="#22c55e" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
+                    <Bar dataKey="openRate" name="Open Rate %" fill="#a78bfa" radius={[6, 6, 2, 2]} fillOpacity={0.8} />
+                    <Bar dataKey="replyRate" name="Reply Rate %" fill="#34d399" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
+                    <Bar dataKey="bounceRate" name="Bounce Rate %" fill="#f87171" radius={[6, 6, 2, 2]} fillOpacity={0.6} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1114,6 +1169,85 @@ export default function App() {
               activeSheetTab={activeSource.sheetTab}
               onManageSources={() => setShowSources(true)}
             />
+          </div>
+        )}
+
+        {/* ── CAMPAIGNS PERFORMANCE ── */}
+        {activeTab === 'campaigns' && (
+          <div className="tab-content">
+            <div className="chart-card full">
+              <h2>Campaign Performance</h2>
+              {campaignPerformance.length === 0 ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '20px 0' }}>
+                  No campaigns tracked yet. Launch a campaign and its performance will appear here.
+                </div>
+              ) : (
+                <table className="leaderboard" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Campaign</th>
+                      <th>Date</th>
+                      <th>Status</th>
+                      <th>Sent</th>
+                      <th>Opened</th>
+                      <th>Replied</th>
+                      <th>Bounced</th>
+                      <th>Open %</th>
+                      <th>Reply %</th>
+                      <th>Bounce %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campaignPerformance.map(c => (
+                      <tr key={c.id}>
+                        <td style={{ fontWeight: 600 }}>{c.name || c.sheetTab}</td>
+                        <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: 'var(--text-secondary)' }}>
+                          {c.startedAt ? new Date(c.startedAt).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                        </td>
+                        <td>
+                          <span className={`badge ${c.status === 'done' ? 'badge-green' : c.status === 'error' ? 'badge-red' : 'badge-yellow'}`}>
+                            {c.status}
+                          </span>
+                        </td>
+                        <td style={{ fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>{c.perf.sent}</td>
+                        <td style={{ fontFamily: "'DM Mono', monospace" }}>{c.perf.opened}</td>
+                        <td style={{ fontFamily: "'DM Mono', monospace" }}>{c.perf.replied}</td>
+                        <td style={{ fontFamily: "'DM Mono', monospace" }}>{c.perf.bounced}</td>
+                        <td><span className={`badge ${c.perf.openRate > 25 ? 'badge-green' : 'badge-yellow'}`}>{c.perf.openRate}%</span></td>
+                        <td><span className={`badge ${c.perf.replyRate > 5 ? 'badge-green' : 'badge-yellow'}`}>{c.perf.replyRate}%</span></td>
+                        <td><span className={`badge ${c.perf.bounceRate > 5 ? 'badge-red' : 'badge-green'}`}>{c.perf.bounceRate}%</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Campaign comparison chart */}
+            {campaignPerformance.length > 1 && (
+              <div className="chart-card full">
+                <h2>Campaign Comparison</h2>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={campaignPerformance.map(c => ({
+                    name: c.name || c.sheetTab,
+                    'Open %': c.perf.openRate,
+                    'Reply %': c.perf.replyRate,
+                    'Bounce %': c.perf.bounceRate,
+                    sent: c.perf.sent,
+                  }))} margin={{ top: 12, right: 20, left: -4, bottom: 0 }} barCategoryGap="32%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }} axisLine={false} tickLine={false} tickMargin={8} />
+                    <YAxis unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }} />
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 16 }} iconType="circle" iconSize={8}
+                      formatter={(value: string) => <span style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }}>{value}</span>} />
+                    <Bar dataKey="Open %" fill="#6366f1" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
+                    <Bar dataKey="Reply %" fill="#22c55e" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
+                    <Bar dataKey="Bounce %" fill="#ef4444" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
         )}
 

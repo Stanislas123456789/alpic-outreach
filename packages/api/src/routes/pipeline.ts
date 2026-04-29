@@ -405,11 +405,24 @@ router.get('/progress', (req: Request, res: Response) => {
   });
 });
 
-// GET /api/pipeline/campaigns — list all campaigns
-router.get('/campaigns', (_req: Request, res: Response) => {
+// GET /api/pipeline/campaigns — list all campaigns with sent contact emails
+router.get('/campaigns', async (_req: Request, res: Response) => {
   const list = Array.from(campaigns.values())
-    .map(({ scheduledTimer, ...c }) => c)  // strip internal timer
+    .map(({ scheduledTimer, log, ...c }) => c)  // strip internal timer + large log array
     .sort((a, b) => (b.startedAt || b.scheduledAt || '').localeCompare(a.startedAt || a.scheduledAt || ''));
+
+  // Enrich with contact emails from Postgres for per-campaign performance tracking
+  if (db.isDbAvailable()) {
+    try {
+      const enriched = await Promise.all(list.map(async (c) => {
+        const events = await db.getCampaignEvents(c.id);
+        const sentEmails = events.filter(e => e.type === 'sent').map(e => e.email).filter(Boolean);
+        return { ...c, sentEmails };
+      }));
+      res.json(enriched);
+      return;
+    } catch {}
+  }
   res.json(list);
 });
 

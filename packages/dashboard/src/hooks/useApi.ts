@@ -74,6 +74,7 @@ export interface Campaign {
   total: number;
   log: ProgressEvent[];
   error?: string;
+  sentEmails?: string[];  // emails sent in this campaign (from Postgres)
 }
 
 export function useApi(user: AuthUser | null) {
