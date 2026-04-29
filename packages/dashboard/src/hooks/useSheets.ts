@@ -69,8 +69,8 @@ async function fetchSheetData(sheetId: string, sheetTab: string): Promise<Contac
       firstOpenAt: row[SHEET_COLUMNS.firstOpenAt] || '',
       repliedAt: row[SHEET_COLUMNS.repliedAt] || '',
       bounceReason: row[SHEET_COLUMNS.bounceReason] || '',
-      touch2SentAt: row[SHEET_COLUMNS.touch2SentAt] || '',
-      touch3SentAt: row[SHEET_COLUMNS.touch3SentAt] || '',
+      touch2SentAt: normalizeSentAt(row[SHEET_COLUMNS.touch2SentAt] || ''),
+      touch3SentAt: normalizeSentAt(row[SHEET_COLUMNS.touch3SentAt] || ''),
       optedOut: (row[SHEET_COLUMNS.optedOut] || '').toLowerCase() === 'true',
     }));
 }
