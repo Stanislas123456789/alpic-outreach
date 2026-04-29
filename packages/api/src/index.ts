@@ -9,7 +9,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import sendersRouter from './routes/senders';
-import pipelineRouter, { getUniqueCampaignSheets, getFollowUpConfigs } from './routes/pipeline';
+import pipelineRouter, { getUniqueCampaignSheets, getFollowUpConfigs, loadCampaignsFromDb } from './routes/pipeline';
+import { initDb, isDbAvailable } from './db';
 import {
   readSenders,
   resetDailyCountersIfNeeded,
@@ -336,11 +337,23 @@ async function startPipelineCron() {
 resetDailyCountersIfNeeded();
 wireTokenRotation();
 
-if (START_CRON) {
-  startPipelineCron().catch(err => {
-    console.error('Failed to start pipeline cron:', err);
-  });
-}
+// Init Postgres + load campaign history before starting cron
+(async () => {
+  if (isDbAvailable()) {
+    try {
+      await initDb();
+      await loadCampaignsFromDb();
+    } catch (err) {
+      console.error('[db] Postgres init failed — running without persistence:', err);
+    }
+  }
+
+  if (START_CRON) {
+    startPipelineCron().catch(err => {
+      console.error('Failed to start pipeline cron:', err);
+    });
+  }
+})();
 
 app.listen(API_PORT, async () => {
   console.log(`

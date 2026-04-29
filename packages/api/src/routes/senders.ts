@@ -2,21 +2,30 @@ import { Router, Request, Response } from 'express';
 import { google } from 'googleapis';
 import { readSenders, upsertSender, writeSenders } from '../senders';
 import { generateAuthUrl, exchangeCode, DASHBOARD_URL, createOAuthClient } from '../auth';
+import { getAllSenderDailyCounts, isDbAvailable } from '../db';
 
 const router = Router();
 
 // GET /api/senders — list connected senders + daily stats
-router.get('/', (_req: Request, res: Response) => {
+router.get('/', async (_req: Request, res: Response) => {
   const senders = readSenders();
+  // Prefer Postgres daily counts (survives deploys) over in-memory counts
+  let dbCounts: Record<string, number> = {};
+  if (isDbAvailable()) {
+    try { dbCounts = await getAllSenderDailyCounts(); } catch {}
+  }
   res.json(
-    senders.map(s => ({
-      email: s.email,
-      name: s.name,
-      dailyLimit: s.dailyLimit,
-      sentToday: s.sentToday,
-      remaining: s.dailyLimit - s.sentToday,
-      connected: !!s.refreshToken,
-    }))
+    senders.map(s => {
+      const sentToday = dbCounts[s.email] ?? s.sentToday;
+      return {
+        email: s.email,
+        name: s.name,
+        dailyLimit: s.dailyLimit,
+        sentToday,
+        remaining: s.dailyLimit - sentToday,
+        connected: !!s.refreshToken,
+      };
+    })
   );
 });
 

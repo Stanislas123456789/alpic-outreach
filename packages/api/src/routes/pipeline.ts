@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { readSenders, syncSentCounts } from '../senders';
+import * as db from '../db';
 
 const router = Router();
 
@@ -70,51 +71,67 @@ interface Campaign {
   scheduledTimer?: ReturnType<typeof setTimeout>; // internal, not serialized
 }
 
-// ─── Disk persistence ─────────────────────────────────────────────────────────
+// ─── Persistence (Postgres + in-memory cache) ───────────────────────────────
 
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
-const CAMPAIGNS_FILE = path.join(DATA_DIR, 'campaigns.json');
+const campaigns = new Map<string, Campaign>();
 
-function loadCampaigns(): Map<string, Campaign> {
+// Load campaigns from Postgres into memory on startup
+export async function loadCampaignsFromDb(): Promise<void> {
+  if (!db.isDbAvailable()) {
+    console.log('[campaigns] No DATABASE_URL — running without persistent campaign storage');
+    return;
+  }
   try {
-    if (fs.existsSync(CAMPAIGNS_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(CAMPAIGNS_FILE, 'utf8'));
-      const map = new Map<string, Campaign>();
-      for (const [id, c] of Object.entries(raw as Record<string, Campaign>)) {
-        // Any campaign that was "running" at shutdown is now "error"
-        if ((c as Campaign).status === 'running') (c as Campaign).status = 'error';
-        map.set(id, c as Campaign);
+    const rows = await db.getCampaigns(100);
+    for (const r of rows) {
+      // Any campaign that was "running" at shutdown is now "error"
+      const status = r.status === 'running' ? 'error' : r.status;
+      campaigns.set(r.id, {
+        id: r.id,
+        name: r.name,
+        sheetId: r.sheetId,
+        sheetTab: r.sheetTab,
+        status: status as Campaign['status'],
+        sent: r.sent,
+        total: r.total,
+        error: r.error,
+        followUp: r.followUp,
+        followUp2: r.followUp2,
+        followUpUnsubscribeEnabled: r.followUpUnsubscribeEnabled,
+        startedAt: r.startedAt,
+        scheduledAt: r.scheduledAt,
+        log: [],
+      });
+      // Fix stuck "running" campaigns in Postgres too
+      if (r.status === 'running') {
+        db.updateCampaignStatus(r.id, 'error', { error: 'Server restarted during execution' }).catch(() => {});
       }
-      console.log(`[campaigns] Loaded ${map.size} campaigns from disk`);
-      return map;
     }
+    console.log(`[campaigns] Loaded ${campaigns.size} campaigns from Postgres`);
   } catch (err) {
-    console.error('[campaigns] Failed to load from disk:', err);
-  }
-  return new Map();
-}
-
-function saveCampaigns(map: Map<string, Campaign>): void {
-  try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    const obj: Record<string, Omit<Campaign, 'scheduledTimer'>> = {};
-    for (const [id, c] of map) {
-      const { scheduledTimer, ...rest } = c;
-      // Only persist last 50 campaigns to keep file small
-      obj[id] = rest;
-    }
-    // Trim to last 50 by startedAt
-    const entries = Object.entries(obj)
-      .sort(([, a], [, b]) =>
-        (b.startedAt || b.scheduledAt || '').localeCompare(a.startedAt || a.scheduledAt || ''))
-      .slice(0, 50);
-    fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(Object.fromEntries(entries), null, 2));
-  } catch (err) {
-    console.error('[campaigns] Failed to save to disk:', err);
+    console.error('[campaigns] Failed to load from Postgres:', err);
   }
 }
 
-const campaigns = loadCampaigns();
+function saveCampaignToDb(c: Campaign): void {
+  if (!db.isDbAvailable()) return;
+  db.saveCampaign({
+    id: c.id,
+    name: c.name,
+    sheetId: c.sheetId,
+    sheetTab: c.sheetTab,
+    status: c.status,
+    sent: c.sent,
+    total: c.total,
+    error: c.error,
+    followUp: c.followUp,
+    followUp2: c.followUp2,
+    followUpUnsubscribeEnabled: c.followUpUnsubscribeEnabled,
+    startedAt: c.startedAt,
+    scheduledAt: c.scheduledAt,
+    completedAt: c.status === 'done' || c.status === 'error' ? new Date().toISOString() : null,
+  }).catch(err => console.error('[campaigns] Postgres save error:', err));
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -143,7 +160,7 @@ export function getUniqueCampaignSheets(): { sheetId: string; sheetTab: string }
   return result;
 }
 
-// Returns unique {sheetId, sheetTab, followUp, followUp2, unsubscribeEnabled} combos for campaigns with follow-up enabled
+// Returns follow-up configs — reads from in-memory cache (populated from Postgres on startup)
 export function getFollowUpConfigs(): { sheetId: string; sheetTab: string; followUp: CampaignFollowUp; followUp2?: CampaignFollowUp; unsubscribeEnabled: boolean }[] {
   const seen = new Set<string>();
   const result: { sheetId: string; sheetTab: string; followUp: CampaignFollowUp; followUp2?: CampaignFollowUp; unsubscribeEnabled: boolean }[] = [];
@@ -192,6 +209,7 @@ async function executeCampaign(
 ) {
   campaign.status = 'running';
   campaign.startedAt = new Date().toISOString();
+  saveCampaignToDb(campaign);
 
   const { minDelay, maxDelay } = speedToDelays(speedMode);
 
@@ -201,14 +219,11 @@ async function executeCampaign(
     const { setUserSheetsToken } = await import('../../../pipeline/src/sheets');
 
     let senders = readSenders().filter(s => !!s.refreshToken);
-    // If a specific sender was requested, restrict to that sender only.
-    // This ensures each user's campaign sends only from their own email.
     if (senderEmail) {
       const matched = senders.filter(s => s.email === senderEmail);
       if (matched.length > 0) senders = matched;
     }
     setSenders(senders.map(s => ({ ...s })));
-    // Use the campaign sender's token for Sheets auth
     const sheetsToken = senders[0]?.refreshToken ?? null;
     setUserSheetsToken(sheetsToken);
 
@@ -229,7 +244,15 @@ async function executeCampaign(
         }
         if (event.type === 'sent') {
           campaign.sent += 1;
+          // Persist send count to Postgres for the sender
+          if (event.via) db.incrementSenderDailyCount(event.via).catch(() => {});
         }
+        // Persist event to Postgres
+        db.addCampaignEvent(campaign.id, {
+          type: event.type, contactId: event.contactId, email: event.email,
+          firstName: event.firstName, company: event.company, via: event.via,
+          error: event.error, idx: event.index, total: event.total,
+        }).catch(() => {});
       },
     });
 
@@ -242,7 +265,7 @@ async function executeCampaign(
     console.error(`[api] Campaign ${campaign.id} error:`, err.message);
   } finally {
     campaign.log.push({ type: 'done', timestamp: new Date().toISOString() });
-    saveCampaigns(campaigns);
+    saveCampaignToDb(campaign);
   }
 }
 
@@ -325,6 +348,7 @@ router.post('/run', async (req: Request, res: Response) => {
   };
 
   campaigns.set(campaignId, campaign);
+  saveCampaignToDb(campaign);
 
   const now = new Date();
   const scheduleTime = scheduledAt ? new Date(scheduledAt) : null;
@@ -336,7 +360,6 @@ router.post('/run', async (req: Request, res: Response) => {
       executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled);
     }, delay);
 
-    saveCampaigns(campaigns);
     res.json({
       ok: true,
       campaignId,
@@ -346,7 +369,6 @@ router.post('/run', async (req: Request, res: Response) => {
   } else {
     // Run immediately
     campaign.scheduledAt = null;
-    saveCampaigns(campaigns);
     res.json({
       ok: true,
       campaignId,
@@ -398,15 +420,19 @@ router.delete('/campaigns/:id', (req: Request, res: Response) => {
   if (c.status !== 'scheduled') return res.status(409).json({ error: 'Can only cancel scheduled campaigns' });
   clearTimeout(c.scheduledTimer);
   c.status = 'cancelled';
-  saveCampaigns(campaigns);
+  saveCampaignToDb(c);
   res.json({ ok: true });
 });
 
 // GET /api/pipeline/campaigns/:id — get single campaign with full log
-router.get('/campaigns/:id', (req: Request, res: Response) => {
+router.get('/campaigns/:id', async (req: Request, res: Response) => {
   const c = campaigns.get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Campaign not found' });
   const { scheduledTimer, ...rest } = c;
+  // Load events from Postgres if available and in-memory log is empty
+  if (rest.log.length === 0 && db.isDbAvailable()) {
+    try { rest.log = await db.getCampaignEvents(rest.id); } catch {}
+  }
   res.json(rest);
 });
 
