@@ -54,24 +54,34 @@ export async function checkReplies(
       });
 
       const messages = thread.data.messages || [];
-      // More than 1 message in thread = got a reply
+      // More than 1 message in thread = got a reply (or bounce)
       if (messages.length > 1) {
-        const lastMsg = messages[messages.length - 1];
-        const headers = lastMsg.payload?.headers || [];
-        const fromHeader = headers.find(h => h.name === 'From')?.value || '';
+        // Check ALL non-sender messages — if ANY is a bounce notification, skip the whole thread
+        const BOUNCE_PATTERNS = ['mailer-daemon', 'postmaster', 'mail delivery', 'noreply', 'no-reply', 'delivery', 'undeliverable'];
+        let hasBounce = false;
+        let hasRealReply = false;
 
-        // Make sure reply is NOT from the sender themselves
-        if (!fromHeader.includes(contact.assignedTo)) {
-          // Skip bounce/delivery notifications — these are NOT real replies
+        for (const msg of messages) {
+          const headers = msg.payload?.headers || [];
+          const fromHeader = headers.find(h => h.name === 'From')?.value || '';
+          // Skip messages from the sender themselves
+          if (fromHeader.includes(contact.assignedTo)) continue;
+
           const fromLower = fromHeader.toLowerCase();
+          const subjectHeader = (headers.find(h => h.name === 'Subject')?.value || '').toLowerCase();
           if (
-            fromLower.includes('mailer-daemon') ||
-            fromLower.includes('postmaster') ||
-            fromLower.includes('mail delivery') ||
-            fromLower.includes('noreply') ||
-            fromLower.includes('no-reply')
-          ) continue;
+            BOUNCE_PATTERNS.some(p => fromLower.includes(p)) ||
+            subjectHeader.includes('delivery status') ||
+            subjectHeader.includes('undeliverable') ||
+            subjectHeader.includes('delivery failure')
+          ) {
+            hasBounce = true;
+          } else {
+            hasRealReply = true;
+          }
+        }
 
+        if (hasRealReply && !hasBounce) {
           await updateContactStatus(contact.rowIndex, {
             status: 'replied',
             repliedAt: dayjs().toISOString(),
