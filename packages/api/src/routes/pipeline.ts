@@ -214,8 +214,8 @@ async function executeCampaign(
 
     await runPipeline({
       excludeIds,
-      sheetId: campaign.sheetId || undefined,
-      sheetTab: campaign.sheetTab || undefined,
+      sheetId: campaign.sheetId,
+      sheetTab: campaign.sheetTab,
       emailOverrides,
       maxEmails,
       minDelay,
@@ -258,8 +258,9 @@ router.post('/run', async (req: Request, res: Response) => {
   }
 
   const excludeIds: string[] = req.body?.excludeIds || [];
-  const sheetId: string = req.body?.sheetId || '';
-  const sheetTab: string = req.body?.tab || '';
+  const sheetId: string = req.body?.sheetId || process.env.GOOGLE_SHEET_ID || '';
+  const sheetTab: string = req.body?.tab || process.env.GOOGLE_SHEET_TAB || 'Master Table';
+  console.log(`[campaign] Sheet: ${sheetId} / Tab: ${sheetTab} (from body: ${!!req.body?.sheetId})`);
   const emailOverrides: Record<string, { subject: string; body: string }> = req.body?.emailOverrides || {};
   const scheduledAt: string | undefined = req.body?.scheduledAt;
   const maxEmails: number | undefined = req.body?.maxEmails ? Number(req.body.maxEmails) : undefined;
