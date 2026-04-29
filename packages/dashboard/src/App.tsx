@@ -742,7 +742,6 @@ export default function App() {
                   <div className="industry-header">
                     <div className="industry-dot" style={{ background: INDUSTRY_COLORS[ind.industry] || '#6366f1' }} />
                     <h3>{ind.industry}</h3>
-                    <span className="ind-total">{ind.sent} sent</span>
                   </div>
 
                   {/* Funnel bar */}
@@ -754,41 +753,26 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Counts row */}
                   <div className="industry-stats">
-                    <div className="ind-stat">
-                      <span>Delivered</span>
-                      <strong>{ind.delivered}</strong>
-                    </div>
-                    <div className="ind-stat">
-                      <span>Opened</span>
-                      <strong style={{ color: '#a78bfa' }}>{ind.opened}</strong>
-                    </div>
-                    <div className="ind-stat">
-                      <span>Replied</span>
-                      <strong style={{ color: '#34d399' }}>{ind.replied}</strong>
-                    </div>
-                    <div className="ind-stat">
-                      <span>Bounced</span>
-                      <strong style={{ color: '#f87171' }}>{ind.bounced}</strong>
-                    </div>
+                    <div className="ind-stat"><span>Sent</span><strong>{ind.sent}</strong></div>
+                    <div className="ind-stat"><span>Bounced</span><strong style={{ color: '#f87171' }}>{ind.bounced}</strong></div>
+                    <div className="ind-stat"><span>Opened</span><strong style={{ color: '#a78bfa' }}>{ind.opened}</strong></div>
+                    <div className="ind-stat"><span>Replied</span><strong style={{ color: '#34d399' }}>{ind.replied}</strong></div>
                   </div>
-
-                  {/* Rates row */}
-                  <div className="ind-rates-row">
-                    <div className="ind-rate-item">
-                      <span className="ind-rate-value" style={{ color: '#a78bfa' }}>{ind.openRate}%</span>
-                      <span className="ind-rate-label">Open Rate</span>
+                  <div className="ind-rates">
+                    <div className="rate-bar">
+                      <span>Open</span>
+                      <div className="rate-track">
+                        <div className="rate-fill" style={{ width: `${ind.openRate}%`, background: '#a78bfa' }} />
+                      </div>
+                      <span>{ind.openRate}%</span>
                     </div>
-                    <div className="ind-rate-divider" />
-                    <div className="ind-rate-item">
-                      <span className="ind-rate-value" style={{ color: '#34d399' }}>{ind.replyRate}%</span>
-                      <span className="ind-rate-label">Reply Rate</span>
-                    </div>
-                    <div className="ind-rate-divider" />
-                    <div className="ind-rate-item">
-                      <span className="ind-rate-value" style={{ color: '#f87171' }}>{ind.bounceRate}%</span>
-                      <span className="ind-rate-label">Bounce Rate</span>
+                    <div className="rate-bar">
+                      <span>Reply</span>
+                      <div className="rate-track">
+                        <div className="rate-fill" style={{ width: `${ind.replyRate}%`, background: '#34d399' }} />
+                      </div>
+                      <span>{ind.replyRate}%</span>
                     </div>
                   </div>
                 </div>
