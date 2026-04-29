@@ -127,7 +127,7 @@ function EmptyState({ onAddSource }: { onAddSource: () => void }) {
 export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
-  const { contacts, loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = useAllSheets(sources, 30000);
+  const { contacts, loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = useAllSheets([activeSource], 30000);
   const error: string | null = null;
   const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders' | 'settings'>('overview');
   const [showSources, setShowSources] = useState(false);
