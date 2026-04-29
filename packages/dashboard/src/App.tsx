@@ -16,28 +16,70 @@ import './App.css';
 
 const INDUSTRY_COLORS: Record<string, string> = {
   'Travel': '#6366f1',
-  'Insurance': '#f59e0b',
-  'SaaS': '#10b981',
+  'Insurance': '#eab308',
+  'SaaS': '#22c55e',
   'Ecommerce/Marketplace': '#ef4444',
   'Real Estate': '#8b5cf6',
+  'Software': '#3b82f6',
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: '#64748b',
+  pending: '#71717a',
   sent: '#6366f1',
-  opened: '#a78bfa',
-  replied: '#34d399',
-  bounced: '#f87171',
-  invalid: '#fb923c',
+  opened: '#8b5cf6',
+  replied: '#22c55e',
+  bounced: '#ef4444',
+  invalid: '#f97316',
 };
+
+function ChartTooltip({ active, payload, label, labelFormatter }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      background: 'var(--card-elevated)',
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      padding: '14px 16px',
+      boxShadow: '0 12px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255,255,255,0.04)',
+      minWidth: 160,
+      backdropFilter: 'blur(12px)',
+    }}>
+      <div style={{
+        fontSize: 12, fontWeight: 600, color: 'var(--text)',
+        marginBottom: 10, paddingBottom: 8,
+        borderBottom: '1px solid var(--border-subtle)',
+        letterSpacing: '-0.01em',
+      }}>
+        {labelFormatter ? labelFormatter(label) : label}
+      </div>
+      {payload.map((entry: any, i: number) => (
+        <div key={i} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 16, padding: '3px 0',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: entry.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entry.name}</span>
+          </div>
+          <span style={{
+            fontSize: 13, fontWeight: 600, color: 'var(--text)',
+            fontVariantNumeric: 'tabular-nums', fontFamily: "'DM Mono', monospace",
+          }}>
+            {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
   const c = color || 'var(--accent)';
   return (
     <div className="stat-card" style={{ '--stat-color': c } as React.CSSProperties}>
       <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: '2px',
-        background: c, opacity: 0.6,
+        position: 'absolute', top: '20%', left: 0, bottom: '20%', width: '2px',
+        background: c, borderRadius: '0 2px 2px 0', opacity: 0.5,
       }} />
       <div className="stat-label">{label}</div>
       <div className="stat-value" style={{ color: c }}>{value}</div>
@@ -437,63 +479,57 @@ export default function App() {
               {dailyMetrics.length > 0 && (
                 <div className="chart-card full">
                   <h2>Daily Send Activity</h2>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <AreaChart data={dailyMetrics} margin={{ top: 10, right: 16, left: -8, bottom: 0 }}>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={dailyMetrics} margin={{ top: 12, right: 20, left: -4, bottom: 0 }}>
                       <defs>
                         <linearGradient id="gradSent" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                          <stop offset="0%" stopColor="#6366f1" stopOpacity={0.20} />
+                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
                         </linearGradient>
                         <linearGradient id="gradOpened" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.25} />
-                          <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
+                          <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.15} />
+                          <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} />
                         </linearGradient>
                         <linearGradient id="gradReplied" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#34d399" stopOpacity={0.25} />
-                          <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
+                          <stop offset="0%" stopColor="#22c55e" stopOpacity={0.15} />
+                          <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
                       <XAxis
                         dataKey="date"
-                        tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
-                        axisLine={false} tickLine={false}
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }}
+                        axisLine={false} tickLine={false} tickMargin={8}
                         tickFormatter={d => {
                           const dt = new Date(d + 'T12:00:00');
                           return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
                         }}
                       />
                       <YAxis
-                        tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
-                        axisLine={false} tickLine={false}
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }}
+                        axisLine={false} tickLine={false} tickMargin={4}
                         allowDecimals={false}
                       />
                       <Tooltip
-                        contentStyle={{
-                          background: '#0f1119', border: '1px solid #1d2030',
-                          borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                          padding: '10px 14px',
-                        }}
-                        labelStyle={{ color: 'var(--text)', fontSize: 12, fontWeight: 600, marginBottom: 6 }}
-                        itemStyle={{ fontSize: 12 }}
-                        cursor={{ stroke: 'rgba(99,102,241,0.2)', strokeWidth: 1 }}
-                        labelFormatter={d => {
+                        content={<ChartTooltip labelFormatter={(d: string) => {
                           const dt = new Date(d + 'T12:00:00');
                           return dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-                        }}
+                        }} />}
+                        cursor={{ stroke: 'var(--text-muted)', strokeWidth: 1, strokeDasharray: '4 4' }}
                       />
                       <Legend
-                        wrapperStyle={{ fontSize: 11, paddingTop: 12 }}
-                        iconType="circle" iconSize={7}
+                        wrapperStyle={{ fontSize: 12, paddingTop: 16 }}
+                        iconType="circle" iconSize={8}
+                        formatter={(value: string) => <span style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }}>{value}</span>}
                       />
-                      <Area type="monotone" dataKey="sent" name="Sent" stroke="#6366f1" strokeWidth={2.5}
-                        fill="url(#gradSent)" dot={false} activeDot={{ r: 5, fill: '#6366f1', strokeWidth: 0 }} />
-                      <Area type="monotone" dataKey="opened" name="Opened" stroke="#a78bfa" strokeWidth={2}
-                        fill="url(#gradOpened)" dot={false} activeDot={{ r: 5, fill: '#a78bfa', strokeWidth: 0 }} />
-                      <Area type="monotone" dataKey="replied" name="Replied" stroke="#34d399" strokeWidth={2}
-                        fill="url(#gradReplied)" dot={false} activeDot={{ r: 5, fill: '#34d399', strokeWidth: 0 }} />
-                      <Line type="monotone" dataKey="bounced" name="Bounced" stroke="#f87171" strokeWidth={1.5}
-                        dot={false} activeDot={{ r: 4, fill: '#f87171', strokeWidth: 0 }} strokeDasharray="5 3" />
+                      <Area type="monotone" dataKey="sent" name="Sent" stroke="#6366f1" strokeWidth={2}
+                        fill="url(#gradSent)" dot={false} activeDot={{ r: 4, fill: '#6366f1', stroke: 'rgba(99,102,241,0.2)', strokeWidth: 8 }} />
+                      <Area type="monotone" dataKey="opened" name="Opened" stroke="#8b5cf6" strokeWidth={2}
+                        fill="url(#gradOpened)" dot={false} activeDot={{ r: 4, fill: '#8b5cf6', stroke: 'rgba(139,92,246,0.2)', strokeWidth: 8 }} />
+                      <Area type="monotone" dataKey="replied" name="Replied" stroke="#22c55e" strokeWidth={2}
+                        fill="url(#gradReplied)" dot={false} activeDot={{ r: 4, fill: '#22c55e', stroke: 'rgba(34,197,94,0.2)', strokeWidth: 8 }} />
+                      <Line type="monotone" dataKey="bounced" name="Bounced" stroke="#ef4444" strokeWidth={1.5}
+                        dot={false} activeDot={{ r: 3, fill: '#ef4444', stroke: 'rgba(239,68,68,0.2)', strokeWidth: 6 }} strokeDasharray="5 3" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -503,29 +539,25 @@ export default function App() {
                 {/* Funnel */}
                 <div className="chart-card wide">
                   <h2>Pipeline Funnel</h2>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={funnel} margin={{ top: 10, right: 16, left: -8, bottom: 0 }} barCategoryGap="28%">
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={funnel} margin={{ top: 12, right: 20, left: -4, bottom: 0 }} barCategoryGap="32%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
                       <XAxis
                         dataKey="stage"
-                        tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-                        axisLine={false} tickLine={false}
+                        tick={{ fill: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }}
+                        axisLine={false} tickLine={false} tickMargin={8}
                       />
                       <YAxis
-                        tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }}
                         axisLine={false} tickLine={false}
                       />
                       <Tooltip
-                        contentStyle={{
-                          background: '#0f1119', border: '1px solid #1d2030',
-                          borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                        }}
-                        labelStyle={{ color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}
-                        cursor={{ fill: 'rgba(99,102,241,0.06)' }}
+                        content={<ChartTooltip />}
+                        cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }}
                       />
-                      <Bar dataKey="value" radius={[8, 8, 4, 4]}>
+                      <Bar dataKey="value" radius={[6, 6, 2, 2]} animationDuration={600}>
                         {funnel.map((entry, index) => (
-                          <Cell key={index} fill={entry.color} fillOpacity={0.9} />
+                          <Cell key={index} fill={entry.color} fillOpacity={0.85} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -563,7 +595,7 @@ export default function App() {
                 <h2>Reply Rate by Industry</h2>
                 <ResponsiveContainer width="100%" height={Math.max(180, industryMetrics.length * 52)}>
                   <BarChart data={industryMetrics} layout="vertical" margin={{ left: 8, right: 48, top: 4, bottom: 4 }} barCategoryGap="30%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={true} horizontal={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={true} horizontal={false} />
                     <XAxis
                       type="number" unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
                       axisLine={false} tickLine={false}
@@ -574,13 +606,8 @@ export default function App() {
                       axisLine={false} tickLine={false}
                     />
                     <Tooltip
-                      contentStyle={{
-                        background: '#0f1119', border: '1px solid #1d2030',
-                        borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                      }}
-                      labelStyle={{ color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}
-                      formatter={(val) => [`${val}%`, 'Reply Rate']}
-                      cursor={{ fill: 'rgba(99,102,241,0.05)' }}
+                      content={<ChartTooltip />}
+                      cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }}
                     />
                     <Bar dataKey="replyRate" radius={[0, 8, 8, 0]} name="Reply Rate" label={{
                       position: 'right',
@@ -658,19 +685,18 @@ export default function App() {
                 <h2>Rep Performance Comparison</h2>
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={repMetrics} margin={{ top: 10, right: 16, left: -8, bottom: 0 }} barCategoryGap="30%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                    <XAxis dataKey="repName" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                    <XAxis dataKey="repName" tick={{ fill: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }} axisLine={false} tickLine={false} tickMargin={8} />
+                    <YAxis unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }} axisLine={false} tickLine={false} />
                     <Tooltip
-                      contentStyle={{ background: '#0f1119', border: '1px solid #1d2030', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
-                      labelStyle={{ color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}
-                      formatter={(val) => [`${val}%`]}
-                      cursor={{ fill: 'rgba(99,102,241,0.06)' }}
+                      content={<ChartTooltip />}
+                      cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={7} />
-                    <Bar dataKey="openRate" name="Open Rate" fill="#6366f1" radius={[6, 6, 3, 3]} fillOpacity={0.9} />
-                    <Bar dataKey="replyRate" name="Reply Rate" fill="#34d399" radius={[6, 6, 3, 3]} fillOpacity={0.9} />
-                    <Bar dataKey="bounceRate" name="Bounce Rate" fill="#f87171" radius={[6, 6, 3, 3]} fillOpacity={0.9} />
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 16 }} iconType="circle" iconSize={8}
+                      formatter={(value: string) => <span style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }}>{value}</span>} />
+                    <Bar dataKey="openRate" name="Open Rate" fill="#6366f1" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
+                    <Bar dataKey="replyRate" name="Reply Rate" fill="#22c55e" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
+                    <Bar dataKey="bounceRate" name="Bounce Rate" fill="#ef4444" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -722,18 +748,18 @@ export default function App() {
                 <h2>Industry Volume vs Reply Rate</h2>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={industryMetrics} margin={{ top: 10, right: 16, left: -8, bottom: 0 }} barCategoryGap="30%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                    <XAxis dataKey="industry" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="left" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="right" orientation="right" unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                    <XAxis dataKey="industry" tick={{ fill: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }} axisLine={false} tickLine={false} tickMargin={8} />
+                    <YAxis yAxisId="left" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="right" orientation="right" unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: "'DM Mono', monospace" }} axisLine={false} tickLine={false} />
                     <Tooltip
-                      contentStyle={{ background: '#0f1119', border: '1px solid #1d2030', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
-                      labelStyle={{ color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}
-                      cursor={{ fill: 'rgba(99,102,241,0.06)' }}
+                      content={<ChartTooltip />}
+                      cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={7} />
-                    <Bar yAxisId="left" dataKey="sent" name="Emails Sent" fill="#6366f1" radius={[6, 6, 3, 3]} fillOpacity={0.75} />
-                    <Bar yAxisId="right" dataKey="replyRate" name="Reply %" fill="#34d399" radius={[6, 6, 3, 3]} fillOpacity={0.9} />
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 16 }} iconType="circle" iconSize={8}
+                      formatter={(value: string) => <span style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500 }}>{value}</span>} />
+                    <Bar yAxisId="left" dataKey="sent" name="Emails Sent" fill="#6366f1" radius={[6, 6, 2, 2]} fillOpacity={0.75} />
+                    <Bar yAxisId="right" dataKey="replyRate" name="Reply %" fill="#22c55e" radius={[6, 6, 2, 2]} fillOpacity={0.85} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
