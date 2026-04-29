@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { SheetSource } from '../hooks/useConfig';
 
+const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
+
 interface Props {
   sources: SheetSource[];
   activeId: string;
@@ -24,6 +26,8 @@ export default function SourceModal({ sources, activeId, onAdd, onUpdate, onDele
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [sheetIdParsed, setSheetIdParsed] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   function startEdit(s: SheetSource) {
     setEditingId(s.id);
@@ -51,6 +55,32 @@ export default function SourceModal({ sources, activeId, onAdd, onUpdate, onDele
     if (!form.sheetId.trim()) return 'Sheet ID is required';
     if (!form.sheetTab.trim()) return 'Sheet tab name is required';
     return '';
+  }
+
+  async function testConnection() {
+    const err = validate();
+    if (err) { setError(err); return; }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const safeTab = /[\s']/.test(form.sheetTab) ? `'${form.sheetTab}'` : form.sheetTab;
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${form.sheetId.trim()}/values/${encodeURIComponent(safeTab + '!A1:B2')}?key=${API_KEY}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const rows = data.values?.length || 0;
+        setTestResult({ ok: true, message: `Connected! Found ${rows} row(s) in header.` });
+      } else if (res.status === 403) {
+        setTestResult({ ok: false, message: 'Access denied. Make sure the sheet is shared as "Anyone with the link" (Viewer).' });
+      } else if (res.status === 400) {
+        setTestResult({ ok: false, message: `Tab "${form.sheetTab}" not found. Check the tab name at the bottom of your spreadsheet.` });
+      } else {
+        setTestResult({ ok: false, message: `Error ${res.status}. Check the Sheet ID and try again.` });
+      }
+    } catch {
+      setTestResult({ ok: false, message: 'Network error. Check your connection.' });
+    }
+    setTesting(false);
   }
 
   function handleSave() {
@@ -105,11 +135,34 @@ export default function SourceModal({ sources, activeId, onAdd, onUpdate, onDele
           {/* Add / Edit form */}
           <div className="source-form">
             <h3>{editingId ? 'Edit Campaign Sheet' : 'Add New Campaign Sheet'}</h3>
+
+            {/* Requirements checklist */}
+            {!editingId && (
+              <div style={{
+                background: 'var(--accent-dim)', border: '1px solid var(--accent)33',
+                borderRadius: 10, padding: '14px 18px', marginBottom: 16,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', marginBottom: 8 }}>Before you start</div>
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+                  {[
+                    'Must be a native Google Sheet (File > Save as Google Sheets if imported from Excel)',
+                    'Share the sheet: "Anyone with the link" > Viewer',
+                    'Tab must follow the standard column layout (Industry, Company, Contact Name, etc.)',
+                  ].map((text, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      <span style={{ color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                      <span>{text}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {error && <div className="form-error">{error}</div>}
             <div className="form-row">
               <label>Campaign Name</label>
               <input
-                placeholder="e.g. Travel Campaign Q2"
+                placeholder="e.g. Week 3 (05/05)"
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               />
@@ -117,14 +170,14 @@ export default function SourceModal({ sources, activeId, onAdd, onUpdate, onDele
             <div className="form-row">
               <label>Google Sheet URL or ID</label>
               <input
-                placeholder="Paste the full URL or just the Sheet ID"
+                placeholder="Paste the full Google Sheets URL or just the ID"
                 value={form.sheetId}
-                onChange={e => handleSheetIdChange(e.target.value)}
+                onChange={e => { handleSheetIdChange(e.target.value); setTestResult(null); }}
                 className="mono"
               />
               {sheetIdParsed && (
-                <span className="form-hint" style={{ color: '#34d399' }}>
-                  ✓ Sheet ID extracted from URL automatically
+                <span className="form-hint" style={{ color: 'var(--green)' }}>
+                  Sheet ID extracted from URL
                 </span>
               )}
               {!sheetIdParsed && (
@@ -137,15 +190,37 @@ export default function SourceModal({ sources, activeId, onAdd, onUpdate, onDele
             <div className="form-row">
               <label>Tab Name</label>
               <input
-                placeholder="Sheet1"
+                placeholder="Master Table"
                 value={form.sheetTab}
-                onChange={e => setForm(f => ({ ...f, sheetTab: e.target.value }))}
+                onChange={e => { setForm(f => ({ ...f, sheetTab: e.target.value })); setTestResult(null); }}
                 className="mono"
               />
-              <span className="form-hint">The name of the tab at the bottom of your spreadsheet (e.g. "Sheet1")</span>
+              <span className="form-hint">The name of the tab at the bottom of your spreadsheet</span>
             </div>
+
+            {/* Test connection result */}
+            {testResult && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 8, fontSize: 12, lineHeight: 1.5,
+                background: testResult.ok ? 'var(--green-dim)' : 'var(--red-dim)',
+                border: `1px solid ${testResult.ok ? 'var(--green)' : 'var(--red)'}33`,
+                color: testResult.ok ? 'var(--green)' : 'var(--red)',
+                marginBottom: 8,
+              }}>
+                {testResult.ok ? '✓ ' : '✗ '}{testResult.message}
+              </div>
+            )}
+
             <div className="form-btns">
               {editingId && <button className="btn-secondary" onClick={cancelEdit}>Cancel</button>}
+              <button
+                className="btn-secondary"
+                onClick={testConnection}
+                disabled={testing || !form.sheetId.trim()}
+                style={{ opacity: testing ? 0.6 : 1 }}
+              >
+                {testing ? 'Testing...' : 'Test Connection'}
+              </button>
               <button className="btn-primary" onClick={handleSave}>
                 {editingId ? 'Save Changes' : '+ Add Campaign Sheet'}
               </button>
