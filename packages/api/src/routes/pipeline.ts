@@ -66,6 +66,7 @@ interface Campaign {
   error?: string;
   followUp?: CampaignFollowUp;
   followUp2?: CampaignFollowUp;
+  followUpUnsubscribeEnabled?: boolean;
   scheduledTimer?: ReturnType<typeof setTimeout>; // internal, not serialized
 }
 
@@ -142,10 +143,10 @@ export function getUniqueCampaignSheets(): { sheetId: string; sheetTab: string }
   return result;
 }
 
-// Returns unique {sheetId, sheetTab, followUp, followUp2} combos for campaigns with follow-up enabled
-export function getFollowUpConfigs(): { sheetId: string; sheetTab: string; followUp: CampaignFollowUp; followUp2?: CampaignFollowUp }[] {
+// Returns unique {sheetId, sheetTab, followUp, followUp2, unsubscribeEnabled} combos for campaigns with follow-up enabled
+export function getFollowUpConfigs(): { sheetId: string; sheetTab: string; followUp: CampaignFollowUp; followUp2?: CampaignFollowUp; unsubscribeEnabled: boolean }[] {
   const seen = new Set<string>();
-  const result: { sheetId: string; sheetTab: string; followUp: CampaignFollowUp; followUp2?: CampaignFollowUp }[] = [];
+  const result: { sheetId: string; sheetTab: string; followUp: CampaignFollowUp; followUp2?: CampaignFollowUp; unsubscribeEnabled: boolean }[] = [];
   const sorted = Array.from(campaigns.values())
     .filter(c => c.followUp?.enabled)
     .sort((a, b) => (b.startedAt || b.scheduledAt || '').localeCompare(a.startedAt || a.scheduledAt || ''));
@@ -153,7 +154,7 @@ export function getFollowUpConfigs(): { sheetId: string; sheetTab: string; follo
     const key = `${c.sheetId}::${c.sheetTab}`;
     if (!seen.has(key)) {
       seen.add(key);
-      result.push({ sheetId: c.sheetId, sheetTab: c.sheetTab, followUp: c.followUp!, followUp2: c.followUp2 });
+      result.push({ sheetId: c.sheetId, sheetTab: c.sheetTab, followUp: c.followUp!, followUp2: c.followUp2, unsubscribeEnabled: c.followUpUnsubscribeEnabled !== false });
     }
   }
   return result;
@@ -267,6 +268,7 @@ router.post('/run', async (req: Request, res: Response) => {
   // senderEmail restricts sending to a single sender account — prevents cross-user email mixing
   const senderEmail: string | undefined = req.body?.senderEmail || (req.headers['x-auth-email'] as string | undefined);
   const unsubscribeEnabled: boolean = req.body?.unsubscribeEnabled !== false; // default true
+  const followUpUnsubscribeEnabled: boolean = req.body?.followUpUnsubscribeEnabled !== false; // default true
 
   // Check if another campaign is already running for the same sheetId+sheetTab
   for (const c of campaigns.values()) {
@@ -318,6 +320,7 @@ router.post('/run', async (req: Request, res: Response) => {
     log: [],
     followUp,
     followUp2,
+    followUpUnsubscribeEnabled,
   };
 
   campaigns.set(campaignId, campaign);

@@ -288,8 +288,8 @@ async function startPipelineCron() {
       const { setSenders } = await import('../../pipeline/src/gmail');
       const senders = readSenders().filter(s => !!s.refreshToken);
       setSenders(senders.map(s => ({ ...s })));
-      for (const { sheetId, sheetTab, followUp, followUp2 } of followUpTargets) {
-        await sendFollowUps(followUp, sheetId, sheetTab, followUp2)
+      for (const { sheetId, sheetTab, followUp, followUp2, unsubscribeEnabled } of followUpTargets) {
+        await sendFollowUps(followUp, sheetId, sheetTab, followUp2, unsubscribeEnabled)
           .catch(err => console.error(`[cron] Follow-up error (${sheetTab}):`, err));
       }
     }

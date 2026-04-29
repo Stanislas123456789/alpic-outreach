@@ -132,6 +132,7 @@ export function useApi(user: AuthUser | null) {
     scheduledAt?: string;
     senderEmail?: string;
     unsubscribeEnabled?: boolean;
+    followUpUnsubscribeEnabled?: boolean;
     followUp?: {
       enabled: boolean;
       delayDays: number;

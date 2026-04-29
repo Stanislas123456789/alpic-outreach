@@ -19,6 +19,7 @@ interface LaunchOpts {
   draftMode: boolean;
   senderEmail: string;
   unsubscribeEnabled?: boolean;
+  followUpUnsubscribeEnabled?: boolean;
   followUp?: {
     enabled: boolean;
     delayDays: number;
@@ -182,7 +183,8 @@ export default function CampaignWizard({
   const [maxPerCompany, setMaxPerCompany] = useState(2);
   const [speedMode, setSpeedMode] = useState<SpeedMode>('normal');
   const [draftMode, setDraftMode] = useState(false);
-  const [unsubscribeEnabled, setUnsubscribeEnabled] = useState(true);
+  const [unsubscribeEnabled, setUnsubscribeEnabled] = useState(false);
+  const [followUpUnsubscribeEnabled, setFollowUpUnsubscribeEnabled] = useState(true);
 
   // Sender selection — locked to the logged-in user to prevent cross-user sends
   const [senderEmail] = useState<string>(user.email);
@@ -450,6 +452,7 @@ export default function CampaignWizard({
         draftMode,
         senderEmail,
         unsubscribeEnabled,
+        followUpUnsubscribeEnabled,
         followUp: followUpEnabled ? {
           enabled: true,
           delayDays: followUpDelayDays,
@@ -842,9 +845,9 @@ export default function CampaignWizard({
                     </div>
                   </div>
 
-                  {/* Unsubscribe link */}
+                  {/* Unsubscribe link — initial email only */}
                   <div>
-                    <div style={S.sectionLabel}>Unsubscribe link</div>
+                    <div style={S.sectionLabel}>Unsubscribe link (initial email)</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <button
                         onClick={() => setUnsubscribeEnabled(p => !p)}
@@ -857,7 +860,7 @@ export default function CampaignWizard({
                         }}
                       >{unsubscribeEnabled ? 'Enabled' : 'Disabled'}</button>
                       <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                        {unsubscribeEnabled ? 'Unsubscribe link added to every email' : 'No unsubscribe link — use with caution'}
+                        {unsubscribeEnabled ? 'Unsubscribe link on initial email' : 'No unsub link — looks more personal'}
                       </span>
                     </div>
                   </div>
@@ -1107,6 +1110,22 @@ export default function CampaignWizard({
                           </div>
                         </div>
                       )}
+
+                      {/* ── Unsub toggle for follow-ups ── */}
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <button onClick={() => setFollowUpUnsubscribeEnabled(p => !p)} style={{
+                            padding: '3px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700,
+                            border: `1px solid ${followUpUnsubscribeEnabled ? 'var(--accent)' : 'var(--border)'}`,
+                            background: followUpUnsubscribeEnabled ? 'var(--accent)' : 'none',
+                            color: followUpUnsubscribeEnabled ? 'white' : 'var(--text-secondary)',
+                            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                          }}>{followUpUnsubscribeEnabled ? 'Unsub link on' : 'Unsub link off'}</button>
+                          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                            {followUpUnsubscribeEnabled ? 'Follow-ups include an unsubscribe link' : 'No unsub link on follow-ups'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

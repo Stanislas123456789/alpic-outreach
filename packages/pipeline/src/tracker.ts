@@ -227,6 +227,7 @@ export async function sendFollowUps(
   sheetId?: string,
   sheetTab?: string,
   config2?: FollowUpConfig,
+  unsubscribeEnabled = true,
 ): Promise<{ sent: number; skipped: number }> {
   console.log('📨 Checking for follow-ups to send...');
   const contacts = await getSentContacts(sheetId, sheetTab);
@@ -281,7 +282,7 @@ export async function sendFollowUps(
       .replace(/{industry}/g, (contact.industry || '').toString())
       .replace(/{appWord}/g, appWord);
     const subject = fill(isFr ? activeConfig.subjectFr : activeConfig.subjectEn);
-    const unsubFooter = buildUnsubscribeFooter(contact.email, contact.language as any || 'EN');
+    const unsubFooter = unsubscribeEnabled ? buildUnsubscribeFooter(contact.email, contact.language as any || 'EN') : '';
     const body = fill(isFr ? activeConfig.bodyFr : activeConfig.bodyEn) + unsubFooter;
 
     try {
