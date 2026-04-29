@@ -74,17 +74,31 @@ async function fetchSheetData(sheetId: string, sheetTab: string): Promise<Contac
 
 // ─── Aggregations ─────────────────────────────────────────────────────────────
 
+// Normalize rep name variations to a canonical key
+function normalizeRep(raw: string): { key: string; name: string } {
+  const s = raw.toLowerCase().trim();
+  const email = s.includes('@') ? s.split('@')[0] : s;
+  // Map common aliases to canonical names
+  const ALIASES: Record<string, string> = {
+    'stan': 'stanislas', 'stanislas': 'stanislas',
+    'dimitri': 'dimitri', 'dim': 'dimitri',
+    'pierre-louis': 'pierre-louis', 'pl': 'pierre-louis',
+  };
+  const canonical = ALIASES[email] || email;
+  return { key: canonical, name: canonical.charAt(0).toUpperCase() + canonical.slice(1) };
+}
+
 export function computeRepMetrics(contacts: Contact[]): RepMetrics[] {
   const repMap = new Map<string, RepMetrics>();
 
   for (const c of contacts) {
     if (!c.assignedTo || c.status === 'pending' || c.status === 'invalid') continue;
 
-    const repKey = c.assignedTo.toLowerCase().trim();
+    const { key: repKey, name: repName } = normalizeRep(c.assignedTo);
     if (!repMap.has(repKey)) {
       repMap.set(repKey, {
         repEmail: c.assignedTo,
-        repName: c.assignedTo.includes('@') ? c.assignedTo.split('@')[0] : c.assignedTo,
+        repName,
         sent: 0, bounced: 0, opened: 0, replied: 0,
         bounceRate: 0, openRate: 0, replyRate: 0,
       });

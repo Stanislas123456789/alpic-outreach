@@ -161,7 +161,7 @@ body {
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--text); border-bottom-color: var(--text); font-weight: 600; }
 
-.main { padding: 28px 32px; max-width: 1500px; }
+.main { padding: 28px 32px; }
 .tab-content { display: flex; flex-direction: column; gap: 20px; animation: fadeIn 0.25s ease; }
 .charts-row { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; }
 
