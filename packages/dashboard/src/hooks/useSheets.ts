@@ -174,15 +174,20 @@ export interface FollowUpTouchMetrics {
   sent: number;
   opened: number;
   replied: number;
+  unsubscribed: number;
   openRate: number;
   replyRate: number;
+  unsubRate: number;
 }
 
 export function computeFollowUpMetrics(contacts: Contact[]): {
+  totalUnsubscribed: number;
   touch1: FollowUpTouchMetrics;
   touch2: FollowUpTouchMetrics;
   touch3: FollowUpTouchMetrics;
 } {
+  const totalUnsub = contacts.filter(c => c.optedOut).length;
+
   // Touch 1 = contacts with sentAt (initial send)
   const touch1Contacts = contacts.filter(c => c.sentAt && c.status !== 'pending' && c.status !== 'invalid');
   const touch1Sent = touch1Contacts.length;
@@ -194,34 +199,43 @@ export function computeFollowUpMetrics(contacts: Contact[]): {
   const touch2Sent = touch2Contacts.length;
   const touch2Opened = touch2Contacts.filter(c => c.openCount > 0 || c.status === 'opened' || c.status === 'replied').length;
   const touch2Replied = touch2Contacts.filter(c => c.status === 'replied').length;
+  const touch2Unsub = touch2Contacts.filter(c => c.optedOut).length;
 
   // Touch 3 = contacts with touch3SentAt
   const touch3Contacts = contacts.filter(c => c.touch3SentAt);
   const touch3Sent = touch3Contacts.length;
   const touch3Opened = touch3Contacts.filter(c => c.openCount > 0 || c.status === 'opened' || c.status === 'replied').length;
   const touch3Replied = touch3Contacts.filter(c => c.status === 'replied').length;
+  const touch3Unsub = touch3Contacts.filter(c => c.optedOut).length;
 
   return {
+    totalUnsubscribed: totalUnsub,
     touch1: {
       sent: touch1Sent,
       opened: touch1Opened,
       replied: touch1Replied,
+      unsubscribed: 0,
       openRate: touch1Sent > 0 ? Math.round((touch1Opened / touch1Sent) * 100) : 0,
       replyRate: touch1Sent > 0 ? Math.round((touch1Replied / touch1Sent) * 100) : 0,
+      unsubRate: 0,
     },
     touch2: {
       sent: touch2Sent,
       opened: touch2Opened,
       replied: touch2Replied,
+      unsubscribed: touch2Unsub,
       openRate: touch2Sent > 0 ? Math.round((touch2Opened / touch2Sent) * 100) : 0,
       replyRate: touch2Sent > 0 ? Math.round((touch2Replied / touch2Sent) * 100) : 0,
+      unsubRate: touch2Sent > 0 ? Math.round((touch2Unsub / touch2Sent) * 100) : 0,
     },
     touch3: {
       sent: touch3Sent,
       opened: touch3Opened,
       replied: touch3Replied,
+      unsubscribed: touch3Unsub,
       openRate: touch3Sent > 0 ? Math.round((touch3Opened / touch3Sent) * 100) : 0,
       replyRate: touch3Sent > 0 ? Math.round((touch3Replied / touch3Sent) * 100) : 0,
+      unsubRate: touch3Sent > 0 ? Math.round((touch3Unsub / touch3Sent) * 100) : 0,
     },
   };
 }
