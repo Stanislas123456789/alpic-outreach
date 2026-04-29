@@ -127,7 +127,7 @@ function EmptyState({ onAddSource }: { onAddSource: () => void }) {
 export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
-  const { contacts, loading, lastUpdated, refresh, repMetrics, industryMetrics, funnel, stats } = useAllSheets(sources, 30000);
+  const { contacts, loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = useAllSheets(sources, 30000);
   const error: string | null = null;
   const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'industries' | 'pipeline' | 'senders' | 'settings'>('overview');
   const [showSources, setShowSources] = useState(false);
@@ -355,6 +355,15 @@ export default function App() {
         <StatCard label="Reply Rate" value={`${stats.replyRate}%`} sub="target >10%" color={stats.replyRate > 10 ? '#34d399' : '#f59e0b'} />
         <StatCard label="Replied" value={contacts.filter(c => c.status === 'replied').length} sub="total replies" color="#34d399" />
       </div>
+
+      {/* Sheet error banner */}
+      {sheetErrors.length > 0 && (
+        <div style={{ margin: '0 24px 12px', padding: '10px 16px', background: '#f871711a', border: '1px solid #f87171', borderRadius: 8 }}>
+          {sheetErrors.map((err, i) => (
+            <div key={i} style={{ fontSize: 12, color: '#f87171', lineHeight: 1.5 }}>{err}</div>
+          ))}
+        </div>
+      )}
 
       {/* Tabs */}
       <nav className="tabs">

@@ -154,10 +154,12 @@ export function useAllSheets(sources: SheetSource[], refreshInterval = 30000) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [sheetErrors, setSheetErrors] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     const all: Contact[] = [];
+    const errors: string[] = [];
     await Promise.allSettled(
       sources
         .filter(s => s.sheetId)
@@ -165,12 +167,15 @@ export function useAllSheets(sources: SheetSource[], refreshInterval = 30000) {
           try {
             const data = await fetchSheetData(s.sheetId, s.sheetTab);
             all.push(...data);
-          } catch {
-            // individual sheet failure is silent — don't break the whole view
+          } catch (err: any) {
+            const msg = err?.message || 'Unknown error';
+            const hint = msg.includes('403') ? ' — make sure the sheet is shared as "Anyone with the link can view"' : '';
+            errors.push(`${s.name || s.sheetTab}: ${msg}${hint}`);
           }
         })
     );
     setContacts(all);
+    setSheetErrors(errors);
     setLastUpdated(new Date());
     setLoading(false);
   }, [sources.map(s => s.id + s.sheetId + s.sheetTab).join(',')]);
@@ -191,7 +196,7 @@ export function useAllSheets(sources: SheetSource[], refreshInterval = 30000) {
   const replyRate = totalSent > 0 ? Math.round((contacts.filter(c => c.status === 'replied').length / totalSent) * 100) : 0;
 
   return {
-    contacts, loading, lastUpdated, refresh,
+    contacts, loading, lastUpdated, refresh, sheetErrors,
     repMetrics, industryMetrics, funnel,
     stats: { totalSent, totalPending, bounceRate, openRate, replyRate },
   };
