@@ -1,0 +1,8 @@
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.15; }
+}
+
+.skeleton-pulse {
+  animation: skeletonPulse 1.8s ease-in-out infinite;
+}
