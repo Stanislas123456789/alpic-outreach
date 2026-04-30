@@ -188,5 +188,5 @@ export function useConfig() {
     });
   }, [activeId]);
 
-  return { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource };
+  return { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource, synced };
 }

@@ -79,8 +79,10 @@ function computeTrend(contacts: { sentAt?: string; status: string; openCount: nu
 
 export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
-  const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
-  const sheetsData = useAllSheets([activeSource], 30000);
+  const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource, synced } = useConfig();
+  // Don't load sheet data until config is synced from API (prevents loading stale env-var default)
+  const emptySource = { id: '', name: '', sheetId: '', sheetTab: '' };
+  const sheetsData = useAllSheets(synced ? [activeSource] : [emptySource], 30000);
   const contacts = sheetsData.contacts || [];
   const { loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = sheetsData;
   const emptyTouch = { sent: 0, opened: 0, replied: 0, unsubscribed: 0, openRate: 0, replyRate: 0, unsubRate: 0 };
