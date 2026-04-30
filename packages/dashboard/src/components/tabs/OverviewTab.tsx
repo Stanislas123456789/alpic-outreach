@@ -110,7 +110,8 @@ function filterByDateRange(contacts: Contact[], range: DateRange): Contact[] {
   });
 }
 
-export default function OverviewTab({ contacts, industryMetrics, funnel, followUpMetrics, loading, onAddSource }: Props) {
+export default function OverviewTab({ contacts: rawContacts, industryMetrics, funnel, followUpMetrics, loading, onAddSource }: Props) {
+  const contacts = rawContacts || [];
   const [dateRange, setDateRange] = useState<DateRange>('all');
 
   const rangedContacts = useMemo(() => filterByDateRange(contacts, dateRange), [contacts, dateRange]);

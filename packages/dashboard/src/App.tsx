@@ -80,8 +80,10 @@ export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource } = useConfig();
   const sheetsData = useAllSheets([activeSource], 30000);
-  const { contacts, loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = sheetsData;
-  const followUpMetrics = sheetsData.followUpMetrics || { totalUnsubscribed: 0, touch1: { sent: 0, opened: 0, replied: 0, unsubscribed: 0, openRate: 0, replyRate: 0, unsubRate: 0 }, touch2: { sent: 0, opened: 0, replied: 0, unsubscribed: 0, openRate: 0, replyRate: 0, unsubRate: 0 }, touch3: { sent: 0, opened: 0, replied: 0, unsubscribed: 0, openRate: 0, replyRate: 0, unsubRate: 0 } };
+  const contacts = sheetsData.contacts || [];
+  const { loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = sheetsData;
+  const emptyTouch = { sent: 0, opened: 0, replied: 0, unsubscribed: 0, openRate: 0, replyRate: 0, unsubRate: 0 };
+  const followUpMetrics = sheetsData.followUpMetrics || { totalUnsubscribed: 0, touch1: emptyTouch, touch2: emptyTouch, touch3: emptyTouch };
   const { campaigns: campaignList } = useCampaigns(user);
   const error: string | null = null;
   const [activeTab, setActiveTab] = useState<TabId>('overview');

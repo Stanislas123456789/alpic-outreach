@@ -14,7 +14,8 @@ interface Props {
   loading: boolean;
 }
 
-export default function CampaignsTab({ contacts, campaignList, loading }: Props) {
+export default function CampaignsTab({ contacts: rawContacts, campaignList, loading }: Props) {
+  const contacts = rawContacts || [];
   const campaignPerformance = useMemo(() => {
     if (!campaignList.length || !contacts.length) return [];
     const contactByEmail = new Map(contacts.map(c => [c.email.toLowerCase(), c]));

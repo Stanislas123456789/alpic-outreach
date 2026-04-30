@@ -10,7 +10,8 @@ interface Props {
   loading: boolean;
 }
 
-export default function PipelineTab({ contacts, loading }: Props) {
+export default function PipelineTab({ contacts: rawContacts, loading }: Props) {
+  const contacts = rawContacts || [];
   const [statusFilter, setStatusFilter] = useState('all');
   const [industryFilter, setIndustryFilter] = useState('all');
   const [sortCol, setSortCol] = useState('sentAt');
