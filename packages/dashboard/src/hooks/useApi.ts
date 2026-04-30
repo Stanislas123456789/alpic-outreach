@@ -75,6 +75,11 @@ export interface Campaign {
   log: ProgressEvent[];
   error?: string;
   sentEmails?: string[];  // emails sent in this campaign (from Postgres)
+  templateId?: string;
+  followUp?: { enabled: boolean; delayDays: number; subjectEn: string; subjectFr: string; bodyEn: string; bodyFr: string };
+  followUp2?: { enabled: boolean; delayDays: number; subjectEn: string; subjectFr: string; bodyEn: string; bodyFr: string };
+  sendWindow?: { enabled: boolean; startHour: number; endHour: number };
+  weekSchedule?: { activeDays: boolean[]; distributionMode: string; customWeights?: number[] };
 }
 
 export function useApi(user: AuthUser | null) {

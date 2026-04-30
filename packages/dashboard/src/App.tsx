@@ -289,7 +289,6 @@ export default function App() {
           <StatCard label="Open Rate" value={`${stats.openRate}%`} sub="industry avg 25%" color={stats.openRate > 25 ? '#34d399' : '#f59e0b'} trend={trends.openRate ?? undefined} />
           <StatCard label="Reply Rate" value={`${stats.replyRate}%`} sub="target >10%" color={stats.replyRate > 10 ? '#34d399' : '#f59e0b'} trend={trends.replyRate ?? undefined} />
           <StatCard label="Replied" value={contacts.filter(c => c.status === 'replied').length} sub="total replies" color="#34d399" />
-          <StatCard label="Follow-ups" value={followUpMetrics.touch2.sent + followUpMetrics.touch3.sent} sub={`FU1: ${followUpMetrics.touch2.sent} / FU2: ${followUpMetrics.touch3.sent}`} color="#a78bfa" />
           <StatCard label="Unsubscribed" value={followUpMetrics.totalUnsubscribed} sub={`${stats.totalSent > 0 ? Math.round((followUpMetrics.totalUnsubscribed / stats.totalSent) * 100) : 0}% of total sent`} color="#ef4444" />
         </div>
       )}

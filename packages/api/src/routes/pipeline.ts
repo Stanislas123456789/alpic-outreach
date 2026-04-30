@@ -70,6 +70,9 @@ interface Campaign {
   followUpUnsubscribeEnabled?: boolean;
   sendWindow?: { enabled: boolean; startHour: number; endHour: number };
   weekSchedule?: { activeDays: boolean[]; distributionMode: string; customWeights?: number[] };
+  ccEmail?: string;                // CC address (undefined = no CC)
+  listUnsubscribe?: boolean;       // Add List-Unsubscribe headers (default true)
+  plainTextFallback?: boolean;     // Include plain-text alternative (default true)
   scheduledTimer?: ReturnType<typeof setTimeout>; // internal, not serialized
 }
 
@@ -214,6 +217,9 @@ async function executeCampaign(
   unsubscribeEnabled?: boolean,
   sendWindow?: { enabled: boolean; startHour: number; endHour: number },
   weekSchedule?: { activeDays: boolean[]; distributionMode: string; customWeights?: number[] },
+  ccEmail?: string,
+  listUnsubscribe?: boolean,
+  plainTextFallback?: boolean,
 ) {
   campaign.status = 'running';
   campaign.startedAt = new Date().toISOString();
@@ -247,6 +253,9 @@ async function executeCampaign(
       unsubscribeEnabled,
       sendWindow: sendWindow || campaign.sendWindow,
       weekSchedule: weekSchedule || campaign.weekSchedule,
+      ccEmail: ccEmail ?? campaign.ccEmail,
+      listUnsubscribe: listUnsubscribe ?? campaign.listUnsubscribe ?? true,
+      plainTextFallback: plainTextFallback ?? campaign.plainTextFallback ?? true,
       onProgress: (event: ProgressEvent) => {
         campaign.log.push(event);
         if (event.type === 'start' && event.total != null) {
@@ -305,6 +314,10 @@ router.post('/run', async (req: Request, res: Response) => {
   const followUpUnsubscribeEnabled: boolean = req.body?.followUpUnsubscribeEnabled !== false; // default true
   const sendWindow = req.body?.sendWindow || undefined;
   const weekSchedule = req.body?.weekSchedule || undefined;
+  // Deliverability options (all default to sensible spam-safe values)
+  const ccEmail: string | undefined = req.body?.ccEmail || undefined;  // no CC by default
+  const listUnsubscribe: boolean = req.body?.listUnsubscribe !== false;  // default true
+  const plainTextFallback: boolean = req.body?.plainTextFallback !== false;  // default true
 
   // Check if another campaign is already running for the same sheetId+sheetTab
   for (const c of campaigns.values()) {
@@ -359,6 +372,9 @@ router.post('/run', async (req: Request, res: Response) => {
     followUpUnsubscribeEnabled,
     sendWindow,
     weekSchedule,
+    ccEmail,
+    listUnsubscribe,
+    plainTextFallback,
   };
 
   campaigns.set(campaignId, campaign);
@@ -371,7 +387,7 @@ router.post('/run', async (req: Request, res: Response) => {
   if (isInFuture) {
     const delay = scheduleTime.getTime() - now.getTime();
     campaign.scheduledTimer = setTimeout(() => {
-      executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled, sendWindow, weekSchedule);
+      executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled, sendWindow, weekSchedule, ccEmail, listUnsubscribe, plainTextFallback);
     }, delay);
 
     res.json({
@@ -394,7 +410,7 @@ router.post('/run', async (req: Request, res: Response) => {
     });
 
     // Run async after responding
-    executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled, sendWindow, weekSchedule);
+    executeCampaign(campaign, excludeIds, emailOverrides, maxEmails, speedMode, draftMode, senderEmail, unsubscribeEnabled, sendWindow, weekSchedule, ccEmail, listUnsubscribe, plainTextFallback);
   }
 });
 

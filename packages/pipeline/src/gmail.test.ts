@@ -11,7 +11,7 @@ vi.mock('google-auth-library', () => ({
   OAuth2Client: vi.fn(),
 }));
 
-import { setSenders, getSenders, pickSender, resetDailyCounters, getSendStats } from './gmail';
+import { setSenders, getSenders, pickSender, resetDailyCounters, getSendStats, htmlToPlainText } from './gmail';
 import { Sender } from './types';
 
 function makeSender(overrides: Partial<Sender> = {}): Sender {
@@ -116,5 +116,41 @@ describe('getSendStats', () => {
     expect(stats).toHaveLength(2);
     expect(stats[0]).toEqual({ email: 'a@alpic.ai', sent: 30, remaining: 50 });
     expect(stats[1]).toEqual({ email: 'b@alpic.ai', sent: 50, remaining: 0 });
+  });
+});
+
+describe('htmlToPlainText', () => {
+  it('strips basic HTML tags', () => {
+    expect(htmlToPlainText('<p>Hello <b>world</b></p>')).toBe('Hello world');
+  });
+
+  it('converts <br> to newlines', () => {
+    expect(htmlToPlainText('Line 1<br>Line 2<br/>Line 3')).toBe('Line 1\nLine 2\nLine 3');
+  });
+
+  it('converts </p> to double newlines', () => {
+    const result = htmlToPlainText('<p>Para 1</p><p>Para 2</p>');
+    expect(result).toContain('Para 1');
+    expect(result).toContain('Para 2');
+    expect(result).toContain('\n\n');
+  });
+
+  it('preserves link text and URL', () => {
+    const result = htmlToPlainText('<a href="https://example.com">Click here</a>');
+    expect(result).toContain('Click here');
+    expect(result).toContain('https://example.com');
+  });
+
+  it('decodes HTML entities', () => {
+    expect(htmlToPlainText('&amp; &lt; &gt;')).toBe('& < >');
+  });
+
+  it('handles real email body', () => {
+    const html = `<p>Hi Jean,</p><p>Stripe and Adyen just launched their ChatGPT apps.</p><p>Best,<br>Stanislas</p>`;
+    const plain = htmlToPlainText(html);
+    expect(plain).toContain('Hi Jean,');
+    expect(plain).toContain('Stripe and Adyen');
+    expect(plain).toContain('Stanislas');
+    expect(plain).not.toContain('<');
   });
 });

@@ -23,6 +23,7 @@ interface WeekSchedule {
 }
 
 interface LaunchOpts {
+  name?: string;
   excludeIds: string[];
   sheetId?: string;
   tab?: string;
@@ -193,6 +194,9 @@ export default function CampaignWizard({
   onClose,
 }: Props) {
   const [step, setStep] = useState<WizardStep>('sheet');
+
+  // Campaign name
+  const [campaignName, setCampaignName] = useState<string>('');
 
   // Step 1
   const [pickedSheetId, setPickedSheetId] = useState<string>(activeSheetId || '');
@@ -481,6 +485,7 @@ export default function CampaignWizard({
     setLaunchError(null);
     try {
       const result = await onLaunch({
+        name: campaignName || undefined,
         excludeIds,
         sheetId: pickedSheetId || undefined,
         tab: pickedSheetTab || undefined,
@@ -806,6 +811,26 @@ export default function CampaignWizard({
             <div style={S.stepWrap}>
               <div style={S.stepContent}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+
+                  {/* Campaign Name */}
+                  <div>
+                    <div style={S.sectionLabel}>Campaign Name</div>
+                    <div style={S.configField}>
+                      <input
+                        type="text"
+                        placeholder={`Campaign ${new Date().toLocaleDateString([], { day: '2-digit', month: 'short' })}`}
+                        value={campaignName}
+                        onChange={e => setCampaignName(e.target.value)}
+                        style={{
+                          width: '100%', background: 'var(--bg)', border: '1px solid var(--border)',
+                          borderRadius: 8, color: 'var(--text)', fontSize: 14, fontWeight: 600,
+                          padding: '10px 12px', fontFamily: "'DM Sans', sans-serif",
+                          boxSizing: 'border-box' as const,
+                        }}
+                      />
+                      <div style={S.configHint}>Give this campaign a name to identify it later</div>
+                    </div>
+                  </div>
 
                   {/* Volume */}
                   <div>

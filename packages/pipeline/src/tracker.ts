@@ -3,9 +3,9 @@
 // ============================================
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
-import { getSenders, sendFollowUp } from './gmail';
+import { getSenders, sendFollowUp, EmailOptions } from './gmail';
 import { getSentContacts, updateContactStatus, updateTouchTracking } from './sheets';
-import { buildUnsubscribeFooter } from './template';
+import { buildUnsubscribeFooter, buildUnsubscribeUrl } from './template';
 import dayjs from 'dayjs';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -296,6 +296,10 @@ export async function sendFollowUps(
     const body = fill(isFr ? activeConfig.bodyFr : activeConfig.bodyEn) + unsubFooter;
 
     try {
+      const followUpEmailOpts: EmailOptions = {
+        listUnsubscribeUrl: unsubscribeEnabled ? buildUnsubscribeUrl(contact.email) : undefined,
+        includePlainText: true,
+      };
       const result = await sendFollowUp(
         sender,
         contact.email,
@@ -303,6 +307,7 @@ export async function sendFollowUps(
         body,
         contact.threadId,
         contact.messageId || '',
+        followUpEmailOpts,
       );
 
       if (result.success && result.messageId) {

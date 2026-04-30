@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { buildSubject, buildBody, buildTrackingSnippet, buildUnsubscribeFooter } from './template';
+import { buildSubject, buildBody, buildTrackingSnippet, buildUnsubscribeFooter, buildUnsubscribeUrl } from './template';
 import { Contact } from './types';
 
 function makeContact(overrides: Partial<Contact> = {}): Contact {
@@ -170,5 +170,25 @@ describe('buildUnsubscribeFooter', () => {
     const sig1 = f1.match(/sig=([a-f0-9]+)/)?.[1];
     const sig2 = f2.match(/sig=([a-f0-9]+)/)?.[1];
     expect(sig1).not.toBe(sig2);
+  });
+});
+
+describe('buildUnsubscribeUrl', () => {
+  it('returns a URL string (not HTML)', () => {
+    const url = buildUnsubscribeUrl('test@example.com');
+    expect(url).not.toContain('<');
+    expect(url).toContain('/api/optout');
+    expect(url).toContain('sig=');
+  });
+
+  it('matches the URL inside buildUnsubscribeFooter', () => {
+    const url = buildUnsubscribeUrl('test@example.com');
+    const footer = buildUnsubscribeFooter('test@example.com');
+    expect(footer).toContain(url);
+  });
+
+  it('encodes email in URL', () => {
+    const url = buildUnsubscribeUrl('user@company.com');
+    expect(url).toContain('email=user%40company.com');
   });
 });

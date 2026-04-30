@@ -9,8 +9,8 @@ dotenv.config();
 
 import { getPendingContacts, updateContactStatus, ensureTrackingHeaders } from './sheets';
 import { validateEmail } from './validator';
-import { buildSubject, buildBody, buildTrackingSnippet, previewEmail } from './template';
-import { pickSender, sendEmail, createDraft, resetDailyCounters, getSendStats } from './gmail';
+import { buildSubject, buildBody, buildTrackingSnippet, buildUnsubscribeUrl, previewEmail } from './template';
+import { pickSender, sendEmail, createDraft, resetDailyCounters, getSendStats, EmailOptions } from './gmail';
 import { checkReplies, checkBounces } from './tracker';
 import { Contact } from './types';
 import { isWithinSendWindow, getCurrentDayInTimezone, countryToTimezone } from './timezone';
@@ -19,7 +19,6 @@ const DRY_RUN = process.env.DRY_RUN === 'true';
 const TEST_EMAIL = process.env.TEST_EMAIL || '';
 const MIN_DELAY = parseInt(process.env.MIN_DELAY_SECONDS || '90') * 1000;
 const MAX_DELAY = parseInt(process.env.MAX_DELAY_SECONDS || '180') * 1000;
-const CC_EMAIL = 'dimitri@alpic.ai';
 const BATCH_SIZE = 5; // contacts per run
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -70,6 +69,7 @@ async function processContact(
   maxDelay = MAX_DELAY,
   draftMode = false,
   unsubscribeEnabled = true,
+  emailOpts?: { ccEmail?: string; listUnsubscribe?: boolean; plainTextFallback?: boolean },
 ): Promise<void> {
   log(`Processing: ${contact.email} (${contact.company})`);
 
@@ -157,9 +157,18 @@ async function processContact(
   if (TEST_EMAIL) log(`TEST MODE — redirecting to ${TEST_EMAIL}`, 'warn');
   if (draftMode) log(`DRAFT MODE — creating draft for ${contact.email}`, 'warn');
 
+  // Build per-message email options
+  const msgOptions: EmailOptions = {
+    cc: emailOpts?.ccEmail,
+    listUnsubscribeUrl: (emailOpts?.listUnsubscribe !== false && unsubscribeEnabled)
+      ? buildUnsubscribeUrl(contact.email)
+      : undefined,
+    includePlainText: emailOpts?.plainTextFallback !== false,
+  };
+
   const result = draftMode
-    ? await createDraft(sender, recipient, subject, body, CC_EMAIL)
-    : await sendEmail(sender, recipient, subject, body, CC_EMAIL);
+    ? await createDraft(sender, recipient, subject, body, msgOptions)
+    : await sendEmail(sender, recipient, subject, body, msgOptions);
 
   if (result.success) {
     if (!TEST_EMAIL) {
@@ -217,6 +226,9 @@ export async function runPipeline(options?: {
   unsubscribeEnabled?: boolean;
   sendWindow?: { enabled: boolean; startHour: number; endHour: number };
   weekSchedule?: { activeDays: boolean[]; distributionMode: string; customWeights?: number[] };
+  ccEmail?: string;                // CC address per campaign (undefined = no CC)
+  listUnsubscribe?: boolean;       // Add List-Unsubscribe headers (default true)
+  plainTextFallback?: boolean;     // Include plain-text alternative (default true)
 }): Promise<void> {
   const {
     onProgress,
@@ -228,6 +240,9 @@ export async function runPipeline(options?: {
     unsubscribeEnabled = true,
     sendWindow,
     weekSchedule,
+    ccEmail,
+    listUnsubscribe = true,
+    plainTextFallback = true,
   } = options || {};
 
   log(chalk.bold('🚀 Starting Alpic Outreach Pipeline'));
@@ -330,7 +345,7 @@ export async function runPipeline(options?: {
       }
     }
 
-    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode, unsubscribeEnabled);
+    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode, unsubscribeEnabled, { ccEmail, listUnsubscribe, plainTextFallback });
 
     // Delay between sends (skip delay after last email)
     if (i < contacts.length - 1 && !DRY_RUN && !draftMode) {
