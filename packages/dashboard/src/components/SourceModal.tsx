@@ -6,7 +6,7 @@ const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
 interface Props {
   sources: SheetSource[];
   activeId: string;
-  onAdd: (s: Omit<SheetSource, 'id'>) => SheetSource;
+  onAdd: (s: Omit<SheetSource, 'id'>) => SheetSource | Promise<SheetSource>;
   onUpdate: (id: string, patch: Partial<Omit<SheetSource, 'id'>>) => void;
   onDelete: (id: string) => void;
   onClose: () => void;

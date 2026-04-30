@@ -59,6 +59,15 @@ export async function initDb(): Promise<void> {
       sent_count INTEGER DEFAULT 0,
       PRIMARY KEY (sender_email, date)
     );
+
+    CREATE TABLE IF NOT EXISTS sheet_sources (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sheet_id TEXT NOT NULL,
+      sheet_tab TEXT NOT NULL,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
   // Migrations for existing tables
   await pool.query(`
@@ -247,4 +256,44 @@ export async function getAllSenderDailyCounts(): Promise<Record<string, number>>
 
 export function isDbAvailable(): boolean {
   return !!process.env.DATABASE_URL;
+}
+
+// ─── Sheet sources (shared across team) ─────────────────────────────────────
+
+export interface DbSheetSource {
+  id: string;
+  name: string;
+  sheetId: string;
+  sheetTab: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
+export async function listSources(): Promise<DbSheetSource[]> {
+  const { rows } = await pool.query(
+    `SELECT id, name, sheet_id, sheet_tab, created_by, created_at FROM sheet_sources ORDER BY created_at`
+  );
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    sheetId: r.sheet_id,
+    sheetTab: r.sheet_tab,
+    createdBy: r.created_by,
+    createdAt: r.created_at?.toISOString(),
+  }));
+}
+
+export async function upsertSource(s: DbSheetSource): Promise<void> {
+  await pool.query(`
+    INSERT INTO sheet_sources (id, name, sheet_id, sheet_tab, created_by)
+    VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name,
+      sheet_id = EXCLUDED.sheet_id,
+      sheet_tab = EXCLUDED.sheet_tab
+  `, [s.id, s.name, s.sheetId, s.sheetTab, s.createdBy || null]);
+}
+
+export async function deleteSource(id: string): Promise<void> {
+  await pool.query(`DELETE FROM sheet_sources WHERE id = $1`, [id]);
 }

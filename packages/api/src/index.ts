@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import sendersRouter from './routes/senders';
+import sourcesRouter from './routes/sources';
 import pipelineRouter, { getUniqueCampaignSheets, getFollowUpConfigs, loadCampaignsFromDb } from './routes/pipeline';
 import { initDb, isDbAvailable } from './db';
 import {
@@ -80,6 +81,7 @@ app.use(requireAlpicEmail);
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 app.use('/api/senders', sendersRouter);
+app.use('/api/sources', sourcesRouter);
 app.use('/api/pipeline', pipelineRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
