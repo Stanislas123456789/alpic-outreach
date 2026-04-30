@@ -57,11 +57,12 @@ interface CampaignStats {
 }
 
 function getCampaignStats(campaign: Campaign): CampaignStats {
-  const sentContacts = campaign.log.filter(e => e.type === 'sent');
-  const failedContacts = campaign.log.filter(e => e.type === 'failed');
-  const invalidContacts = campaign.log.filter(e => e.type === 'invalid');
-  const skippedEvts = campaign.log.filter(e => e.type === 'skipped');
-  const doneEvt = [...campaign.log].reverse().find(e => e.type === 'done');
+  const log = campaign.log || [];
+  const sentContacts = log.filter(e => e.type === 'sent');
+  const failedContacts = log.filter(e => e.type === 'failed');
+  const invalidContacts = log.filter(e => e.type === 'invalid');
+  const skippedEvts = log.filter(e => e.type === 'skipped');
+  const doneEvt = [...log].reverse().find(e => e.type === 'done');
   return {
     sent: campaign.sent || sentContacts.length,
     failed: failedContacts.length,
