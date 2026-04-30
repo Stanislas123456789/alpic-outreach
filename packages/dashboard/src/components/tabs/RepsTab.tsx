@@ -16,7 +16,8 @@ interface Props {
   loading: boolean;
 }
 
-export default function RepsTab({ repMetrics, loading }: Props) {
+export default function RepsTab({ repMetrics: rawRepMetrics, loading }: Props) {
+  const repMetrics = rawRepMetrics || [];
   if (loading && repMetrics.length === 0) {
     return (
       <div className="tab-content">

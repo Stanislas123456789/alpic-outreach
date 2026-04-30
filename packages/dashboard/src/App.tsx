@@ -56,6 +56,7 @@ function computeTrend(contacts: { sentAt?: string; status: string; openCount: nu
   const cutoff1 = now - days * 86400000;
   const cutoff2 = cutoff1 - days * 86400000;
 
+  if (!contacts || !contacts.length) return null;
   const recent = contacts.filter(c => c.sentAt && new Date(c.sentAt).getTime() >= cutoff1);
   const previous = contacts.filter(c => c.sentAt && new Date(c.sentAt).getTime() >= cutoff2 && new Date(c.sentAt).getTime() < cutoff1);
 

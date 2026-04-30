@@ -12,7 +12,8 @@ interface Props {
   loading: boolean;
 }
 
-export default function IndustriesTab({ industryMetrics, loading }: Props) {
+export default function IndustriesTab({ industryMetrics: rawIndustryMetrics, loading }: Props) {
+  const industryMetrics = rawIndustryMetrics || [];
   if (loading && industryMetrics.length === 0) {
     return (
       <div className="tab-content">

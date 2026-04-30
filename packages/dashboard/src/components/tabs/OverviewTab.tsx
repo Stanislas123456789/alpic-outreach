@@ -110,8 +110,12 @@ function filterByDateRange(contacts: Contact[], range: DateRange): Contact[] {
   });
 }
 
-export default function OverviewTab({ contacts: rawContacts, industryMetrics, funnel, followUpMetrics, loading, onAddSource }: Props) {
+export default function OverviewTab({ contacts: rawContacts, industryMetrics: rawIndustryMetrics, funnel: rawFunnel, followUpMetrics: rawFollowUpMetrics, loading, onAddSource }: Props) {
   const contacts = rawContacts || [];
+  const industryMetrics = rawIndustryMetrics || [];
+  const funnel = rawFunnel || [];
+  const emptyTouch = { sent: 0, opened: 0, replied: 0, unsubscribed: 0, openRate: 0, replyRate: 0, unsubRate: 0 };
+  const followUpMetrics = rawFollowUpMetrics || { touch1: emptyTouch, touch2: emptyTouch, touch3: emptyTouch };
   const [dateRange, setDateRange] = useState<DateRange>('all');
 
   const rangedContacts = useMemo(() => filterByDateRange(contacts, dateRange), [contacts, dateRange]);
