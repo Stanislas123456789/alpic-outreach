@@ -71,8 +71,10 @@ export function useConfig() {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
           const currentActive = localStorage.getItem(ACTIVE_KEY);
           if (!currentActive || !data.find(s => s.id === currentActive)) {
-            localStorage.setItem(ACTIVE_KEY, data[0].id);
-            setActiveIdState(data[0].id);
+            // Default to the most recently added source
+            const latest = data[data.length - 1];
+            localStorage.setItem(ACTIVE_KEY, latest.id);
+            setActiveIdState(latest.id);
           }
         } else {
           // Server is empty — seed it with this user's localStorage sources
@@ -96,8 +98,9 @@ export function useConfig() {
                 if (!cancelled && seeded.length > 0) {
                   setSourcesState(seeded);
                   localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
-                  localStorage.setItem(ACTIVE_KEY, seeded[0].id);
-                  setActiveIdState(seeded[0].id);
+                  const latest = seeded[seeded.length - 1];
+                  localStorage.setItem(ACTIVE_KEY, latest.id);
+                  setActiveIdState(latest.id);
                 }
               }
             } catch {}
