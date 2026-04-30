@@ -66,13 +66,41 @@ export function useConfig() {
         const data: SheetSource[] = await res.json();
         if (cancelled) return;
         if (data.length > 0) {
+          // Server has sources — use them as the shared truth
           setSourcesState(data);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-          // If current activeId doesn't exist in server sources, pick first
           const currentActive = localStorage.getItem(ACTIVE_KEY);
           if (!currentActive || !data.find(s => s.id === currentActive)) {
             localStorage.setItem(ACTIVE_KEY, data[0].id);
             setActiveIdState(data[0].id);
+          }
+        } else {
+          // Server is empty — seed it with this user's localStorage sources
+          const local = loadLocalSources();
+          const validLocal = local.filter(s => s.sheetId); // skip empty defaults
+          if (validLocal.length > 0) {
+            for (const s of validLocal) {
+              try {
+                await fetch(`${API_URL}/api/sources`, {
+                  method: 'POST',
+                  headers: getAuthHeaders(),
+                  body: JSON.stringify({ name: s.name, sheetId: s.sheetId, sheetTab: s.sheetTab }),
+                });
+              } catch {}
+            }
+            // Re-fetch to get server-generated IDs
+            try {
+              const res2 = await fetch(`${API_URL}/api/sources`, { headers: getAuthHeaders() });
+              if (res2.ok) {
+                const seeded: SheetSource[] = await res2.json();
+                if (!cancelled && seeded.length > 0) {
+                  setSourcesState(seeded);
+                  localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+                  localStorage.setItem(ACTIVE_KEY, seeded[0].id);
+                  setActiveIdState(seeded[0].id);
+                }
+              }
+            } catch {}
           }
         }
         setSynced(true);
