@@ -117,7 +117,7 @@ body {
 .logout-btn:hover { border-color: var(--red); color: var(--red); }
 
 .kpi-strip {
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  display: grid; grid-template-columns: repeat(6, 1fr);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg2);
 }
@@ -408,9 +408,14 @@ body {
 }
 .btn-secondary:hover { background: var(--card-hover); color: var(--text); }
 
+@media (max-width: 1200px) {
+  .kpi-strip { grid-template-columns: repeat(3, 1fr); }
+}
 @media (max-width: 900px) {
   .kpi-strip { grid-template-columns: repeat(2, 1fr); }
   .charts-row { grid-template-columns: 1fr; }
   .main { padding: 16px; }
   .header { padding: 12px 16px; }
+  .header-right { gap: 6px; }
+  .source-switcher { display: none; }
 }

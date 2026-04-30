@@ -31,10 +31,14 @@ function formatCompetitors(competitors: string[], language: Language): string {
 
 // ─── Unsubscribe footer ───────────────────────────────────────────────────────
 
-export function buildUnsubscribeFooter(email: string, language: Language = 'EN'): string {
+export function buildUnsubscribeUrl(email: string): string {
   const secret = process.env.OPTOUT_SECRET || 'alpic-optout-secret';
   const sig = crypto.createHmac('sha256', secret).update(email).digest('hex');
-  const url = `${TRACKING_BASE}/api/optout?email=${encodeURIComponent(email)}&sig=${sig}`;
+  return `${TRACKING_BASE}/api/optout?email=${encodeURIComponent(email)}&sig=${sig}`;
+}
+
+export function buildUnsubscribeFooter(email: string, language: Language = 'EN'): string {
+  const url = buildUnsubscribeUrl(email);
   const label = language === 'FR' ? 'Se désabonner' : 'Unsubscribe';
   return `\n<p style="font-size:11px;color:#aaa;margin-top:24px;"><a href="${url}" style="color:#aaa;">${label}</a></p>`;
 }

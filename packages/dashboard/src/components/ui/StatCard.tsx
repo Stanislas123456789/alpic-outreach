@@ -1,3 +1,5 @@
+import React from 'react';
+
 export function StatCard({ label, value, sub, color, trend }: {
   label: string;
   value: string | number;
