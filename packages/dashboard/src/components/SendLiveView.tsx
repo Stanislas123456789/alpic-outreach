@@ -202,7 +202,7 @@ export default function SendLiveView({ pollProgress, onDone }: Props) {
                 {e.type === 'sent' && `✅ Sent → ${e.firstName} @ ${e.company} via ${e.via?.split('@')[0]}`}
                 {e.type === 'failed' && `❌ Failed: ${e.email} — ${e.error}`}
                 {e.type === 'invalid' && `⚠️ Invalid: ${e.email}`}
-                {e.type === 'skipped' && `⏭ Skipped: ${e.email}`}
+                {e.type === 'skipped' && `⏭ Skipped: ${e.email}${e.error ? ` — ${e.error}` : ''}`}
                 {e.type === 'done' && `🏁 Done — ${log.filter(x => x.type === 'sent').length} sent`}
               </span>
             </div>

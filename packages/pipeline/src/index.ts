@@ -70,6 +70,7 @@ async function processContact(
   draftMode = false,
   unsubscribeEnabled = true,
   emailOpts?: { ccEmail?: string; listUnsubscribe?: boolean; plainTextFallback?: boolean },
+  restrictToSender?: string,
 ): Promise<void> {
   log(`Processing: ${contact.email} (${contact.company})`);
 
@@ -102,8 +103,8 @@ async function processContact(
     return;
   }
 
-  // 2. Pick sender
-  const sender = pickSender();
+  // 2. Pick sender (restrict to specific email if provided — user isolation)
+  const sender = pickSender(restrictToSender);
   if (!sender) {
     log('All senders at daily limit. Skipping batch.', 'warn');
     onProgress?.({
@@ -229,6 +230,7 @@ export async function runPipeline(options?: {
   ccEmail?: string;                // CC address per campaign (undefined = no CC)
   listUnsubscribe?: boolean;       // Add List-Unsubscribe headers (default true)
   plainTextFallback?: boolean;     // Include plain-text alternative (default true)
+  senderEmail?: string;            // Restrict sending to this email only (user isolation)
 }): Promise<void> {
   const {
     onProgress,
@@ -243,6 +245,7 @@ export async function runPipeline(options?: {
     ccEmail,
     listUnsubscribe = true,
     plainTextFallback = true,
+    senderEmail,
   } = options || {};
 
   log(chalk.bold('🚀 Starting Alpic Outreach Pipeline'));
@@ -345,7 +348,7 @@ export async function runPipeline(options?: {
       }
     }
 
-    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode, unsubscribeEnabled, { ccEmail, listUnsubscribe, plainTextFallback });
+    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode, unsubscribeEnabled, { ccEmail, listUnsubscribe, plainTextFallback }, senderEmail);
 
     // Delay between sends (skip delay after last email)
     if (i < contacts.length - 1 && !DRY_RUN && !draftMode) {

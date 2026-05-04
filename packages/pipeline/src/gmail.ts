@@ -64,8 +64,12 @@ export function getSenders(): Sender[] {
 
 // ─── Round-robin sender selection ────────────────────────────────────────────
 
-export function pickSender(): Sender | null {
-  const available = getSenders().filter(s => s.sentToday < s.dailyLimit);
+export function pickSender(restrictToEmail?: string): Sender | null {
+  let available = getSenders().filter(s => s.sentToday < s.dailyLimit);
+  // When a specific sender is required (user isolation), only allow that sender
+  if (restrictToEmail) {
+    available = available.filter(s => s.email === restrictToEmail);
+  }
   if (available.length === 0) return null;
 
   // Pick sender with lowest utilization rate

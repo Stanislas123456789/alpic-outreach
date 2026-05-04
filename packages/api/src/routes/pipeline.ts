@@ -232,13 +232,14 @@ async function executeCampaign(
     const { setSenders, getSenders } = await import('../../../pipeline/src/gmail');
     const { setUserSheetsToken } = await import('../../../pipeline/src/sheets');
 
-    let senders = readSenders().filter(s => !!s.refreshToken);
-    if (senderEmail) {
-      const matched = senders.filter(s => s.email === senderEmail);
-      if (matched.length > 0) senders = matched;
-    }
+    const senders = readSenders().filter(s => !!s.refreshToken);
+    // Always inject ALL senders so the global pool stays complete — sender
+    // isolation is enforced per-campaign via the senderEmail param passed to
+    // runPipeline → pickSender, not by filtering the global list (which is
+    // racy: the follow-up cron can overwrite it mid-campaign).
     setSenders(senders.map(s => ({ ...s })));
-    const sheetsToken = senders[0]?.refreshToken ?? null;
+    const preferredSender = senderEmail ? senders.find(s => s.email === senderEmail) : senders[0];
+    const sheetsToken = (preferredSender || senders[0])?.refreshToken ?? null;
     setUserSheetsToken(sheetsToken);
 
     await runPipeline({
@@ -251,6 +252,7 @@ async function executeCampaign(
       maxDelay,
       draftMode,
       unsubscribeEnabled,
+      senderEmail,
       sendWindow: sendWindow || campaign.sendWindow,
       weekSchedule: weekSchedule || campaign.weekSchedule,
       ccEmail: ccEmail ?? campaign.ccEmail,
@@ -308,8 +310,10 @@ router.post('/run', async (req: Request, res: Response) => {
   const maxEmails: number | undefined = req.body?.maxEmails ? Number(req.body.maxEmails) : undefined;
   const speedMode: string | undefined = req.body?.speedMode;
   const draftMode: boolean = req.body?.draftMode === true;
-  // senderEmail restricts sending to a single sender account — prevents cross-user email mixing
-  const senderEmail: string | undefined = req.body?.senderEmail || (req.headers['x-auth-email'] as string | undefined);
+  // senderEmail restricts sending to a single sender account — prevents cross-user email mixing.
+  // ALWAYS use the authenticated user's email — never trust req.body.senderEmail to prevent
+  // one user from sending via another user's Gmail account.
+  const senderEmail: string | undefined = (req.headers['x-auth-email'] as string | undefined) || req.body?.senderEmail;
   const unsubscribeEnabled: boolean = req.body?.unsubscribeEnabled !== false; // default true
   const followUpUnsubscribeEnabled: boolean = req.body?.followUpUnsubscribeEnabled !== false; // default true
   const sendWindow = req.body?.sendWindow || undefined;
