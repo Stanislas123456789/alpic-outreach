@@ -450,8 +450,11 @@ export default function CampaignWizard({
     const compCount = comps.split(/[,/]/).filter(Boolean).length;
     const appWord = compCount === 1 ? 'app' : 'apps';
     return rawSubject
+      .replace(/{firstName}/g, c.firstName || '')
       .replace(/{competitors}/g, comps)
+      .replace(/{competitor}/g, comps.split(/[,/]/)[0]?.trim() || comps)
       .replace(/{company}/g, c.company || 'your company')
+      .replace(/{industry}/g, c.industry || '')
       .replace(/{appWord}/g, appWord);
   }
 
@@ -462,8 +465,11 @@ export default function CampaignWizard({
     const compCount = comps.split(/[,/]/).filter(Boolean).length;
     const appWord = isFr ? (compCount === 1 ? 'app' : 'apps') : (compCount === 1 ? 'app' : 'apps');
     const fill = (s: string) =>
-      s.replace(/{competitors}/g, comps)
+      s.replace(/{firstName}/g, c.firstName || '')
        .replace(/{company}/g, c.company || 'your company')
+       .replace(/{competitors}/g, comps)
+       .replace(/{competitor}/g, comps.split(/[,/]/)[0]?.trim() || comps)
+       .replace(/{industry}/g, c.industry || '')
        .replace(/{appWord}/g, appWord);
 
     const body = isFr ? bodyFr : bodyEn;
