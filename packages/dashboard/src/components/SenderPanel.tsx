@@ -114,7 +114,7 @@ function CampaignDetailsModal({
         }}>
           <div style={{ flex: 1 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: '0 0 6px' }}>
-              {campaign.sheetTab || 'Campaign'} — Contacts
+              {campaign.name || campaign.sheetTab || 'Campaign'} — Contacts
             </h2>
             <div style={{ display: 'flex', gap: 14, fontSize: 12 }}>
               <span style={{ color: '#6366f1', fontWeight: 600 }}>{stats.sent} sent</span>
@@ -297,7 +297,7 @@ function CampaignCard({
           fontSize: 13, fontWeight: 600, color: 'var(--text)',
           flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
         }}>
-          {campaign.sheetTab || 'Campaign'}
+          {campaign.name || campaign.sheetTab || 'Campaign'}
         </span>
         <span style={{
           background: badge.bg, color: badge.color,
@@ -432,7 +432,13 @@ export default function SenderPanel({
 
   const [detailCampaign, setDetailCampaign] = useState<Campaign | null>(null);
 
-  const { campaigns, cancelCampaign } = useCampaigns(user);
+  const { campaigns, cancelCampaign, fetchCampaignDetails } = useCampaigns(user);
+
+  async function handleViewDetails(campaign: Campaign) {
+    // Fetch full campaign with log events from Postgres
+    const full = await fetchCampaignDetails(campaign.id);
+    setDetailCampaign(full || campaign);
+  }
 
   // Auto-reconnect live view when a running campaign is detected (e.g. after reload).
   // Track the last running ID we've seen so we only react to changes, not every poll.
@@ -525,7 +531,7 @@ export default function SenderPanel({
                   setActiveCampaignId(c.id);
                   setShowLive(true);
                 }}
-                onViewDetails={setDetailCampaign}
+                onViewDetails={handleViewDetails}
               />
             ))}
           </div>

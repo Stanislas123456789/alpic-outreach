@@ -51,9 +51,8 @@ export default function CampaignsTab({ contacts: rawContacts, campaignList, load
         matched.forEach(m => { if (m.industry) industrySet.add(m.industry); });
         const industries = Array.from(industrySet).sort();
 
-        // Extract sender from log events (via field)
-        const logSent = (c.log || []).find(e => e.type === 'sent' && e.via);
-        const senderEmail = logSent?.via || '';
+        // Sender email from campaign record (stored on creation)
+        const senderEmail = c.senderEmail || '';
 
         return {
           ...c,

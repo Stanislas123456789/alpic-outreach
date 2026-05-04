@@ -73,6 +73,7 @@ interface Campaign {
   ccEmail?: string;                // CC address (undefined = no CC)
   listUnsubscribe?: boolean;       // Add List-Unsubscribe headers (default true)
   plainTextFallback?: boolean;     // Include plain-text alternative (default true)
+  senderEmail?: string;            // Who launched this campaign
   scheduledTimer?: ReturnType<typeof setTimeout>; // internal, not serialized
 }
 
@@ -105,6 +106,7 @@ export async function loadCampaignsFromDb(): Promise<void> {
         followUpUnsubscribeEnabled: r.followUpUnsubscribeEnabled,
         sendWindow: r.sendWindow,
         weekSchedule: r.weekSchedule,
+        senderEmail: r.senderEmail,
         startedAt: r.startedAt,
         scheduledAt: r.scheduledAt,
         log: [],
@@ -136,6 +138,7 @@ function saveCampaignToDb(c: Campaign): void {
     followUpUnsubscribeEnabled: c.followUpUnsubscribeEnabled,
     sendWindow: c.sendWindow,
     weekSchedule: c.weekSchedule,
+    senderEmail: c.senderEmail,
     startedAt: c.startedAt,
     scheduledAt: c.scheduledAt,
     completedAt: c.status === 'done' || c.status === 'error' ? new Date().toISOString() : null,
@@ -323,13 +326,13 @@ router.post('/run', async (req: Request, res: Response) => {
   const listUnsubscribe: boolean = req.body?.listUnsubscribe !== false;  // default true
   const plainTextFallback: boolean = req.body?.plainTextFallback !== false;  // default true
 
-  // Block concurrent campaigns — the pipeline uses shared global state (senders,
-  // sheets token, sent counters) that gets overwritten when a second campaign starts,
-  // causing cross-user email mixing and count corruption.
+  // Block concurrent campaigns on the same sheet — two campaigns reading the same
+  // pending contacts would cause duplicate sends.  Different sheets are fine because
+  // sender isolation is enforced per-campaign via pickSender(senderEmail).
   for (const c of campaigns.values()) {
-    if (c.status === 'running') {
+    if (c.status === 'running' && c.sheetId === sheetId && c.sheetTab === sheetTab) {
       res.status(409).json({
-        error: 'Another campaign is already running. Wait for it to finish before launching a new one.',
+        error: 'A campaign is already running for this sheet. Wait for it to finish before launching a new one.',
         campaignId: c.id,
       });
       return;
@@ -381,6 +384,7 @@ router.post('/run', async (req: Request, res: Response) => {
     ccEmail,
     listUnsubscribe,
     plainTextFallback,
+    senderEmail,
   };
 
   campaigns.set(campaignId, campaign);
@@ -453,7 +457,9 @@ router.get('/campaigns', async (_req: Request, res: Response) => {
       const enriched = await Promise.all(list.map(async (c) => {
         const events = await db.getCampaignEvents(c.id);
         const sentEmails = events.filter(e => e.type === 'sent').map(e => e.email).filter(Boolean);
-        return { ...c, sentEmails };
+        // Backfill senderEmail from events for old campaigns that didn't store it
+        const senderEmail = c.senderEmail || events.find(e => e.type === 'sent' && e.via)?.via || undefined;
+        return { ...c, senderEmail, sentEmails };
       }));
       res.json(enriched);
       return;

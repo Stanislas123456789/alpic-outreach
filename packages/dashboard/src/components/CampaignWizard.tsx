@@ -390,6 +390,14 @@ export default function CampaignWizard({
     }
   }, [sources]);
 
+  // ── Auto-fill campaign name from industries ────────────────────────────────
+
+  useEffect(() => {
+    if (!campaignName && industries.length > 0) {
+      setCampaignName(industries.map(i => i.industry).join(', '));
+    }
+  }, [industries]);
+
   // ── Fetch contacts when reaching Step 2 ────────────────────────────────────
 
   async function fetchContacts() {
@@ -445,6 +453,21 @@ export default function CampaignWizard({
       .replace(/{competitors}/g, comps)
       .replace(/{company}/g, c.company || 'your company')
       .replace(/{appWord}/g, appWord);
+  }
+
+  function buildFollowUpBody(c: PreviewContact, bodyEn: string, bodyFr: string): string {
+    const lang = (c.language || 'EN').toUpperCase() as 'EN' | 'FR';
+    const isFr = lang === 'FR';
+    const comps = c.competitors || 'Your competitors';
+    const compCount = comps.split(/[,/]/).filter(Boolean).length;
+    const appWord = isFr ? (compCount === 1 ? 'app' : 'apps') : (compCount === 1 ? 'app' : 'apps');
+    const fill = (s: string) =>
+      s.replace(/{competitors}/g, comps)
+       .replace(/{company}/g, c.company || 'your company')
+       .replace(/{appWord}/g, appWord);
+
+    const body = isFr ? bodyFr : bodyEn;
+    return textToHtml(fill(body));
   }
 
   function applyTemplateOverrides() {
@@ -1257,7 +1280,9 @@ export default function CampaignWizard({
           {/* ── STEP: Follow-up ─────────────────────────────────── */}
           {step === 'followup' && (
             <div style={S.stepWrap}>
-              <div style={S.stepContent}>
+              <div style={{ ...S.stepContent, display: 'flex', gap: 0, padding: 0, flexDirection: 'row' as const, overflow: 'hidden' }}>
+                {/* Left: fields */}
+                <div style={{ flex: 1, padding: 24, overflowY: 'auto' as const, borderRight: '1px solid var(--border)' }}>
                 <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
                   {/* Header + master toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: followUpEnabled ? 16 : 0 }}>
@@ -1364,6 +1389,70 @@ export default function CampaignWizard({
                     </div>
                   )}
                 </div>
+                </div>
+
+                {/* Right: live preview */}
+                {followUpEnabled && (
+                <div style={{ width: 380, flexShrink: 0, padding: 20, overflowY: 'auto' as const, background: 'var(--bg)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' as const, letterSpacing: '0.07em' }}>Live preview</div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {(['EN', 'FR'] as const).map(lang => (
+                        <button key={lang} onClick={() => setTplPreviewLang(lang)} style={{
+                          padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 4, cursor: 'pointer',
+                          border: `1px solid ${tplPreviewLang === lang ? 'var(--accent)' : 'var(--border)'}`,
+                          background: tplPreviewLang === lang ? 'var(--accent)22' : 'none',
+                          color: tplPreviewLang === lang ? 'var(--accent)' : 'var(--text-secondary)',
+                        }}>{lang}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Follow-up 1 preview */}
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', marginBottom: 6, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+                    Follow-up 1 — +{followUpDelayDays} days
+                  </div>
+                  <div style={{
+                    background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
+                    padding: '14px 16px', fontSize: 12, lineHeight: 1.7, color: 'var(--text)', marginBottom: 16,
+                  }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+                      To: {tplPreviewContact.email}<br />
+                      Subject: {(() => {
+                        const raw = (tplPreviewLang === 'FR' ? followUpSubjectFr : followUpSubjectEn);
+                        return raw ? fillSubject(raw, tplPreviewContact) : <span style={{ fontStyle: 'italic', opacity: 0.5 }}>Re: (original subject)</span>;
+                      })()}
+                    </div>
+                    <div className="email-preview" dangerouslySetInnerHTML={{ __html: buildFollowUpBody({ ...tplPreviewContact, language: tplPreviewLang }, followUpBodyEn, followUpBodyFr) }} />
+                  </div>
+
+                  {/* Follow-up 2 preview */}
+                  {followUp2Enabled && (
+                    <>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', marginBottom: 6, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+                        Follow-up 2 — +{followUpDelayDays + followUp2DelayDays} days
+                      </div>
+                      <div style={{
+                        background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
+                        padding: '14px 16px', fontSize: 12, lineHeight: 1.7, color: 'var(--text)',
+                      }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+                          To: {tplPreviewContact.email}<br />
+                          Subject: {(() => {
+                            const raw = (tplPreviewLang === 'FR' ? followUp2SubjectFr : followUp2SubjectEn);
+                            return raw ? fillSubject(raw, tplPreviewContact) : <span style={{ fontStyle: 'italic', opacity: 0.5 }}>Re: (original subject)</span>;
+                          })()}
+                        </div>
+                        <div className="email-preview" dangerouslySetInnerHTML={{ __html: buildFollowUpBody({ ...tplPreviewContact, language: tplPreviewLang }, followUp2BodyEn, followUp2BodyFr) }} />
+                      </div>
+                    </>
+                  )}
+
+                  <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    Preview using <strong>{tplPreviewContact.firstName} {tplPreviewContact.lastName}</strong> @ {tplPreviewContact.company}
+                  </div>
+                </div>
+                )}
               </div>
               <div style={S.footer}>
                 <button style={S.btnSecondary} onClick={() => setStep('template')}>← Back</button>

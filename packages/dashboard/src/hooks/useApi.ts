@@ -75,6 +75,7 @@ export interface Campaign {
   log: ProgressEvent[];
   error?: string;
   sentEmails?: string[];  // emails sent in this campaign (from Postgres)
+  senderEmail?: string;   // who launched this campaign
   templateId?: string;
   followUp?: { enabled: boolean; delayDays: number; subjectEn: string; subjectFr: string; bodyEn: string; bodyFr: string };
   followUp2?: { enabled: boolean; delayDays: number; subjectEn: string; subjectFr: string; bodyEn: string; bodyFr: string };
@@ -307,5 +308,13 @@ export function useCampaigns(user: AuthUser | null) {
     return () => clearInterval(interval);
   }, [fetchCampaigns]);
 
-  return { campaigns, cancelCampaign, refetch: fetchCampaigns };
+  const fetchCampaignDetails = useCallback(async (id: string): Promise<Campaign | null> => {
+    try {
+      const res = await fetch(`${(import.meta.env.VITE_API_URL || 'http://localhost:4001')}/api/pipeline/campaigns/${id}`, { headers: authHeaders });
+      if (res.ok) return await res.json();
+    } catch {}
+    return null;
+  }, [user?.email]);
+
+  return { campaigns, cancelCampaign, fetchCampaignDetails, refetch: fetchCampaigns };
 }
