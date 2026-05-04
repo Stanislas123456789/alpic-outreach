@@ -326,18 +326,9 @@ router.post('/run', async (req: Request, res: Response) => {
   const listUnsubscribe: boolean = req.body?.listUnsubscribe !== false;  // default true
   const plainTextFallback: boolean = req.body?.plainTextFallback !== false;  // default true
 
-  // Block concurrent campaigns on the same sheet — two campaigns reading the same
-  // pending contacts would cause duplicate sends.  Different sheets are fine because
-  // sender isolation is enforced per-campaign via pickSender(senderEmail).
-  for (const c of campaigns.values()) {
-    if (c.status === 'running' && c.sheetId === sheetId && c.sheetTab === sheetTab) {
-      res.status(409).json({
-        error: 'A campaign is already running for this sheet. Wait for it to finish before launching a new one.',
-        campaignId: c.id,
-      });
-      return;
-    }
-  }
+  // Concurrent campaigns are allowed — sender isolation is enforced per-campaign
+  // via pickSender(senderEmail), and each contact is marked "sending" in the sheet
+  // before the email goes out, preventing double-sends between concurrent campaigns.
 
   // Pre-flight: verify tracking pixel is reachable
   const trackingHealth = await checkTrackingPixelHealth();

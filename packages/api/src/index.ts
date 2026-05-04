@@ -139,8 +139,21 @@ app.get('/api/optout', async (req, res) => {
 
   try {
     const { markOptedOutByEmail } = await import('../../pipeline/src/sheets');
-    await markOptedOutByEmail(email);
-    console.log(`[optout] ${email} opted out`);
+    const { getUniqueCampaignSheets } = await import('./routes/pipeline');
+    // Search across ALL campaign sheets, not just the default — contacts may be
+    // on different sheet tabs and the unsub link doesn't encode which sheet.
+    const sheets = getUniqueCampaignSheets();
+    let found = false;
+    for (const { sheetId, sheetTab } of sheets) {
+      const ok = await markOptedOutByEmail(email, sheetId, sheetTab);
+      if (ok) { found = true; console.log(`[optout] ${email} opted out (${sheetTab})`); }
+    }
+    if (!found) {
+      // Fallback: try the default sheet
+      const ok = await markOptedOutByEmail(email);
+      if (ok) console.log(`[optout] ${email} opted out (default sheet)`);
+      else console.warn(`[optout] ${email} not found in any sheet`);
+    }
   } catch (err) {
     console.error('[optout] Error:', err);
   }
