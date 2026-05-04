@@ -323,11 +323,13 @@ router.post('/run', async (req: Request, res: Response) => {
   const listUnsubscribe: boolean = req.body?.listUnsubscribe !== false;  // default true
   const plainTextFallback: boolean = req.body?.plainTextFallback !== false;  // default true
 
-  // Check if another campaign is already running for the same sheetId+sheetTab
+  // Block concurrent campaigns — the pipeline uses shared global state (senders,
+  // sheets token, sent counters) that gets overwritten when a second campaign starts,
+  // causing cross-user email mixing and count corruption.
   for (const c of campaigns.values()) {
-    if (c.status === 'running' && c.sheetId === sheetId && c.sheetTab === sheetTab) {
+    if (c.status === 'running') {
       res.status(409).json({
-        error: 'A campaign is already running for this sheet',
+        error: 'Another campaign is already running. Wait for it to finish before launching a new one.',
         campaignId: c.id,
       });
       return;
