@@ -14,6 +14,7 @@ import pipelineRouter, { getUniqueCampaignSheets, getFollowUpConfigs, loadCampai
 import { initDb, isDbAvailable } from './db';
 import {
   readSenders,
+  loadSendersFromDb,
   resetDailyCountersIfNeeded,
   syncSentCounts,
   updateRefreshToken,
@@ -24,6 +25,22 @@ import { DASHBOARD_URL, API_PORT, createOAuthClient } from './auth';
 export { DASHBOARD_URL, API_PORT };
 
 const START_CRON = process.env.START_PIPELINE_CRON === 'true';
+
+// ─── Startup env validation ─────────────────────────────────────────────────
+const REQUIRED_ENV = ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'];
+const RECOMMENDED_ENV = ['TRACKING_BASE_URL', 'DATABASE_URL', 'OPTOUT_SECRET'];
+for (const v of REQUIRED_ENV) {
+  if (!process.env[v]) {
+    console.error(`[startup] FATAL: Missing required env var: ${v}`);
+    process.exit(1);
+  }
+}
+for (const v of RECOMMENDED_ENV) {
+  if (!process.env[v]) console.warn(`[startup] ⚠ Missing recommended env var: ${v}`);
+}
+if (process.env.OPTOUT_SECRET === 'alpic-optout-secret') {
+  console.warn('[startup] ⚠ OPTOUT_SECRET is using default value — set a unique secret in production');
+}
 
 const app = express();
 
@@ -107,16 +124,15 @@ app.get('/pixel/:contactId', async (req, res) => {
     const sheetTab = (req.query.tab as string) || process.env.GOOGLE_SHEET_TAB || 'Master Table';
     if (!rowIndex || rowIndex < 2) return;
 
-    const { incrementOpenCount, getSentContacts, updateContactStatus } = await import('../../pipeline/src/sheets');
-    // Look up current open count for this row
-    const contacts = await getSentContacts(sheetId, sheetTab);
-    const contact = contacts.find(c => c.rowIndex === rowIndex);
+    const { incrementOpenCount, getContactAtRow, updateContactStatus } = await import('../../pipeline/src/sheets');
+    // Read just this row instead of the entire sheet — much faster at scale
+    const contact = await getContactAtRow(rowIndex, sheetId, sheetTab);
     if (!contact) return;
 
     const now = new Date().toISOString();
     await incrementOpenCount(rowIndex, contact.openCount || 0, now, sheetId, sheetTab);
 
-    // Also update status to "opened" if it was just "sent"
+    // Update status to "opened" only if currently "sent" — never downgrade replied/bounced
     if (contact.status === 'sent') {
       await updateContactStatus(rowIndex, { status: 'opened' }, sheetId, sheetTab);
     }
@@ -140,13 +156,17 @@ app.get('/api/optout', async (req, res) => {
   try {
     const { markOptedOutByEmail } = await import('../../pipeline/src/sheets');
     const { getUniqueCampaignSheets } = await import('./routes/pipeline');
-    // Search across ALL campaign sheets, not just the default — contacts may be
-    // on different sheet tabs and the unsub link doesn't encode which sheet.
+    // Search across ALL campaign sheets until we find the contact — the unsub
+    // link doesn't encode which sheet the contact is on.
     const sheets = getUniqueCampaignSheets();
     let found = false;
     for (const { sheetId, sheetTab } of sheets) {
       const ok = await markOptedOutByEmail(email, sheetId, sheetTab);
-      if (ok) { found = true; console.log(`[optout] ${email} opted out (${sheetTab})`); }
+      if (ok) {
+        found = true;
+        console.log(`[optout] ${email} opted out (${sheetTab})`);
+        break; // Stop after first match — same email won't be on multiple sheets
+      }
     }
     if (!found) {
       // Fallback: try the default sheet
@@ -289,6 +309,16 @@ async function startPipelineCron() {
 
   // Reply / bounce check + follow-up sends: every 15 min
   cron.schedule('*/15 * * * *', async () => {
+    // Ensure sheets auth uses a connected sender's OAuth token — avoids needing
+    // to manually share every sheet with the service account.
+    const { setUserSheetsToken } = await import('../../pipeline/src/sheets');
+    const { setSenders } = await import('../../pipeline/src/gmail');
+    const senders = readSenders().filter(s => !!s.refreshToken);
+    if (senders.length > 0) {
+      setUserSheetsToken(senders[0].refreshToken);
+      setSenders(senders.map(s => ({ ...s })));
+    }
+
     const sheetTargets = getUniqueCampaignSheets();
     for (const { sheetId, sheetTab } of sheetTargets) {
       await checkReplies(sheetId, sheetTab)
@@ -301,9 +331,6 @@ async function startPipelineCron() {
     const followUpTargets = getFollowUpConfigs();
     if (followUpTargets.length > 0) {
       const { sendFollowUps } = await import('../../pipeline/src/tracker');
-      const { setSenders } = await import('../../pipeline/src/gmail');
-      const senders = readSenders().filter(s => !!s.refreshToken);
-      setSenders(senders.map(s => ({ ...s })));
       for (const { sheetId, sheetTab, followUp, followUp2, unsubscribeEnabled } of followUpTargets) {
         await sendFollowUps(followUp, sheetId, sheetTab, followUp2, unsubscribeEnabled)
           .catch(err => console.error(`[cron] Follow-up error (${sheetTab}):`, err));
@@ -330,7 +357,9 @@ async function startPipelineCron() {
       } catch (err: any) {
         const isRevoked = /invalid_grant|Token has been expired or revoked/i.test(err.message || '');
         if (isRevoked) {
-          console.warn(`[token-refresh] ⚠ Token REVOKED for ${sender.email} — manual reconnect needed`);
+          console.warn(`[token-refresh] ⚠ Token REVOKED for ${sender.email} — clearing token, reconnect needed`);
+          // Clear the dead token so it doesn't get used for sheets auth or sends
+          updateRefreshToken(sender.email, '');
         } else {
           console.error(`[token-refresh] Transient error for ${sender.email}:`, err.message);
         }
@@ -352,11 +381,25 @@ async function startPipelineCron() {
 resetDailyCountersIfNeeded();
 wireTokenRotation();
 
+// Ensure sheets always uses a sender's OAuth token — eliminates the need to
+// manually share every sheet with the service account email.
+function initSheetsAuth() {
+  const senders = readSenders().filter(s => !!s.refreshToken);
+  if (senders.length > 0) {
+    import('../../pipeline/src/sheets').then(({ setUserSheetsToken }) => {
+      setUserSheetsToken(senders[0].refreshToken);
+      console.log(`[sheets] Using ${senders[0].email}'s token for Sheets auth`);
+    }).catch(() => {});
+  }
+}
+initSheetsAuth();
+
 // Init Postgres + load campaign history before starting cron
 (async () => {
   if (isDbAvailable()) {
     try {
       await initDb();
+      await loadSendersFromDb(); // Restore senders from Postgres (survives Railway restarts)
       await loadCampaignsFromDb();
     } catch (err) {
       console.error('[db] Postgres init failed — running without persistence:', err);

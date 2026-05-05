@@ -11,6 +11,27 @@ const SHEET_TAB = process.env.GOOGLE_SHEET_TAB || 'Sheet1';
 // Tracking columns start right after the last data column
 const FIRST_TRACKING_COL = 'W'; // Column 22 = W (Master Table schema)
 
+// ─── Retry with exponential backoff ──────────────────────────────────────────
+// Handles transient Google API errors (429 rate limit, 503 service unavailable,
+// network timeouts). Retries up to 3 times with 2s/4s/8s backoff.
+
+async function withRetry<T>(fn: () => Promise<T>, label = 'API call', maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const status = err?.response?.status || err?.code;
+      const isRetryable = status === 429 || status === 503 || status === 'ECONNRESET' ||
+        status === 'ETIMEDOUT' || /quota|rate/i.test(err.message || '');
+      if (!isRetryable || attempt === maxRetries) throw err;
+      const delay = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+      console.warn(`[sheets] ${label} failed (${status}), retrying in ${delay / 1000}s (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('unreachable');
+}
+
 // Google Sheets A1 notation requires single-quoting tab names that contain spaces or apostrophes.
 function a1Tab(tab: string): string {
   if (/[\s']/.test(tab)) {
@@ -119,10 +140,10 @@ export async function getPendingContacts(
 ): Promise<Contact[]> {
   const sheets = getSheetsClient();
 
-  const res = await sheets.spreadsheets.values.get({
+  const res = await withRetry(() => sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
     range: `${a1Tab(sheetTab)}!A2:AJ`,
-  });
+  }), 'getPendingContacts');
 
   const rows = res.data.values || [];
   const contacts: Contact[] = [];
@@ -130,8 +151,15 @@ export async function getPendingContacts(
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rawStatus = (row[SHEET_COLUMNS.status] || '').toString().toLowerCase().trim();
-    const DONE_STATUSES = new Set(['sent', 'bounced', 'opened', 'replied', 'skipped', 'invalid', 'sending', 'yes', 'oui']);
+    const DONE_STATUSES = new Set(['sent', 'bounced', 'opened', 'replied', 'skipped', 'invalid', 'yes', 'oui']);
     if (DONE_STATUSES.has(rawStatus)) continue;
+    // "sending" without sentAt = stuck from a crashed campaign → treat as pending (retry)
+    // "sending" with sentAt = email was sent but status update failed → skip (already sent)
+    if (rawStatus === 'sending') {
+      const hasSentAt = (row[SHEET_COLUMNS.sentAt] || '').toString().trim();
+      if (hasSentAt) continue; // already sent, just status wasn't updated
+      // else: fall through as pending — will be retried
+    }
     // Skip unsubscribed contacts — CAN-SPAM compliance
     if ((row[SHEET_COLUMNS.optedOut] || '').toString().toUpperCase() === 'TRUE') continue;
     // Also skip contacts that have tracking data written (sentAt or threadId set)
@@ -200,10 +228,10 @@ export async function getAllContactedContacts(
   sheetTab = SHEET_TAB,
 ): Promise<Contact[]> {
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
+  const res = await withRetry(() => sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
     range: `${a1Tab(sheetTab)}!A2:AJ`,
-  });
+  }), 'getAllContactedContacts');
   const rows = res.data.values || [];
   const DONE_STATUSES = new Set(['sent', 'bounced', 'opened', 'replied', 'skipped', 'invalid', 'sending', 'yes', 'oui']);
   const contacts: Contact[] = [];
@@ -263,10 +291,10 @@ export async function getSentContacts(
 ): Promise<Contact[]> {
   const sheets = getSheetsClient();
 
-  const res = await sheets.spreadsheets.values.get({
+  const res = await withRetry(() => sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
     range: `${a1Tab(sheetTab)}!A2:AJ`,  // extended to include follow-up columns
-  });
+  }), 'getSentContacts');
 
   const rows = res.data.values || [];
   const contacts: Contact[] = [];
@@ -328,7 +356,7 @@ export async function updateTouchTracking(
   const colSentAt = touch === 2 ? 'AF' : 'AH';
   const colMsgId  = touch === 2 ? 'AG' : 'AI';
 
-  await sheets.spreadsheets.values.batchUpdate({
+  await withRetry(() => sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: sheetId,
     requestBody: {
       valueInputOption: 'RAW',
@@ -337,7 +365,7 @@ export async function updateTouchTracking(
         { range: `${a1Tab(sheetTab)}!${colMsgId}${rowIndex}`, values: [[data.messageId]] },
       ],
     },
-  });
+  }), `updateTouchTracking(row ${rowIndex}, touch ${touch})`);
 }
 
 // ─── Mark contact as opted out ───────────────────────────────────────────────
@@ -348,12 +376,12 @@ export async function markOptedOut(
   sheetTab = SHEET_TAB,
 ): Promise<void> {
   const sheets = getSheetsClient();
-  await sheets.spreadsheets.values.update({
+  await withRetry(() => sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
     range: `${a1Tab(sheetTab)}!AJ${rowIndex}`,
     valueInputOption: 'RAW',
     requestBody: { values: [['TRUE']] },
-  });
+  }), `markOptedOut(row ${rowIndex})`);
 }
 
 export async function markOptedOutByEmail(
@@ -362,10 +390,10 @@ export async function markOptedOutByEmail(
   sheetTab = SHEET_TAB,
 ): Promise<boolean> {
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
+  const res = await withRetry(() => sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
     range: `${a1Tab(sheetTab)}!H2:H`,
-  });
+  }), `markOptedOutByEmail(${email})`);
   const rows = res.data.values || [];
   const idx = rows.findIndex(r => (r[0] || '').toLowerCase() === email.toLowerCase());
   if (idx === -1) return false;
@@ -414,13 +442,34 @@ export async function updateContactStatus(
 
   if (data.length === 0) return;
 
-  await sheets.spreadsheets.values.batchUpdate({
+  await withRetry(() => sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: sheetId,
     requestBody: {
       valueInputOption: 'RAW',
       data,
     },
-  });
+  }), `updateContactStatus(row ${rowIndex})`);
+}
+
+// ─── Read a single contact row (for pixel tracking — avoids reading entire sheet) ─
+
+export async function getContactAtRow(
+  rowIndex: number,
+  sheetId = SHEET_ID,
+  sheetTab = SHEET_TAB,
+): Promise<{ email: string; status: string; openCount: number } | null> {
+  const sheets = getSheetsClient();
+  const res = await withRetry(() => sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${a1Tab(sheetTab)}!A${rowIndex}:AJ${rowIndex}`,
+  }), `getContactAtRow(${rowIndex})`);
+  const row = (res.data.values || [])[0];
+  if (!row || !row[SHEET_COLUMNS.email]) return null;
+  return {
+    email: row[SHEET_COLUMNS.email] || '',
+    status: (row[SHEET_COLUMNS.status] || '').toLowerCase().trim(),
+    openCount: parseInt(row[SHEET_COLUMNS.openCount]) || 0,
+  };
 }
 
 // ─── Increment open count ─────────────────────────────────────────────────────
@@ -436,7 +485,7 @@ export async function incrementOpenCount(
   const newCount = currentCount + 1;
 
   // openCount is column AB (col 27), firstOpenAt is column AC (col 28)
-  await sheets.spreadsheets.values.batchUpdate({
+  await withRetry(() => sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: sheetId,
     requestBody: {
       valueInputOption: 'RAW',
@@ -453,7 +502,7 @@ export async function incrementOpenCount(
           : []),
       ],
     },
-  });
+  }), `incrementOpenCount(row ${rowIndex})`);
 }
 
 // ─── Ensure tracking header columns exist ────────────────────────────────────

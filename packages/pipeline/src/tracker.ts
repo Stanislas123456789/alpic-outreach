@@ -279,6 +279,10 @@ export async function sendFollowUps(
 
     const sender = senders.find(s => s.email === contact.assignedTo);
     if (!sender) { skipped++; continue; }
+    // Skip if sender hit daily limit — prevents follow-ups from exhausting quota
+    if (sender.sentToday >= sender.dailyLimit) { skipped++; continue; }
+    // Skip if no messageId — can't create proper In-Reply-To header
+    if (!contact.messageId) { skipped++; continue; }
 
     const isFr = (contact.language || 'EN').toUpperCase() === 'FR';
     const comps = contact.competitors || 'Your competitors';

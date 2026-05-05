@@ -390,13 +390,21 @@ export default function CampaignWizard({
     }
   }, [sources]);
 
-  // ── Auto-fill campaign name from industries ────────────────────────────────
+  // ── Auto-fill campaign name from selected contacts' industries ──────────
+
+  const finalIndustries = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of finalContacts) {
+      if (c.industry) set.add(c.industry);
+    }
+    return Array.from(set).sort();
+  }, [finalContacts]);
 
   useEffect(() => {
-    if (!campaignName && industries.length > 0) {
-      setCampaignName(industries.map(i => i.industry).join(', '));
+    if (finalIndustries.length > 0) {
+      setCampaignName(finalIndustries.join(', '));
     }
-  }, [industries]);
+  }, [finalIndustries]);
 
   // ── Fetch contacts when reaching Step 2 ────────────────────────────────────
 

@@ -115,6 +115,24 @@ export async function loadCampaignsFromDb(): Promise<void> {
       if (r.status === 'running') {
         db.updateCampaignStatus(r.id, 'error', { error: 'Server restarted during execution' }).catch(() => {});
       }
+      // Re-schedule campaigns that were scheduled for the future
+      if (status === 'scheduled' && r.scheduledAt) {
+        const scheduleTime = new Date(r.scheduledAt);
+        const now = new Date();
+        if (scheduleTime > now) {
+          const delay = scheduleTime.getTime() - now.getTime();
+          const c = campaigns.get(r.id)!;
+          c.scheduledTimer = setTimeout(() => {
+            executeCampaign(c, [], {}, undefined, undefined, false, r.senderEmail);
+          }, delay);
+          console.log(`[campaigns] Re-scheduled campaign ${r.id} for ${r.scheduledAt}`);
+        } else {
+          // Scheduled time has passed — mark as missed
+          db.updateCampaignStatus(r.id, 'error', { error: 'Missed scheduled time during server restart' }).catch(() => {});
+          campaigns.get(r.id)!.status = 'error';
+          campaigns.get(r.id)!.error = 'Missed scheduled time during server restart';
+        }
+      }
     }
     console.log(`[campaigns] Loaded ${campaigns.size} campaigns from Postgres`);
   } catch (err) {
@@ -314,9 +332,8 @@ router.post('/run', async (req: Request, res: Response) => {
   const speedMode: string | undefined = req.body?.speedMode;
   const draftMode: boolean = req.body?.draftMode === true;
   // senderEmail restricts sending to a single sender account — prevents cross-user email mixing.
-  // ALWAYS use the authenticated user's email — never trust req.body.senderEmail to prevent
-  // one user from sending via another user's Gmail account.
-  const senderEmail: string | undefined = (req.headers['x-auth-email'] as string | undefined) || req.body?.senderEmail;
+  // ONLY use the authenticated user's email from the auth header. Never trust the request body.
+  const senderEmail: string | undefined = req.headers['x-auth-email'] as string | undefined;
   const unsubscribeEnabled: boolean = req.body?.unsubscribeEnabled !== false; // default true
   const followUpUnsubscribeEnabled: boolean = req.body?.followUpUnsubscribeEnabled !== false; // default true
   const sendWindow = req.body?.sendWindow || undefined;
@@ -429,7 +446,7 @@ router.get('/progress', (req: Request, res: Response) => {
   res.json({
     running: campaign.status === 'running',
     total: campaign.total,
-    log: campaign.log,
+    log: campaign.log.slice(-500), // Cap to last 500 events to prevent response bloat
     campaignId: campaign.id,
     sent: campaign.sent,
     status: campaign.status,

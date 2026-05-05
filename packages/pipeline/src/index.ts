@@ -348,7 +348,20 @@ export async function runPipeline(options?: {
       }
     }
 
-    await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode, unsubscribeEnabled, { ccEmail, listUnsubscribe, plainTextFallback }, senderEmail);
+    try {
+      await processContact(contact, emailOverrides, onProgress, options?.sheetId, options?.sheetTab, minDelay, maxDelay, draftMode, unsubscribeEnabled, { ccEmail, listUnsubscribe, plainTextFallback }, senderEmail);
+    } catch (err: any) {
+      log(`Error processing ${contact.email}: ${err.message}`, 'error');
+      onProgress?.({
+        type: 'failed',
+        contactId: contact.id,
+        email: contact.email,
+        firstName: contact.firstName,
+        company: contact.company,
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // Delay between sends (skip delay after last email)
     if (i < contacts.length - 1 && !DRY_RUN && !draftMode) {

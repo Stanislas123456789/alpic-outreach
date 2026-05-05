@@ -37,7 +37,7 @@ export default function SendLiveView({ pollProgress, onDone }: Props) {
           clearInterval(interval);
         }
       } catch { /* silent */ }
-    }, 800);
+    }, 2000);
     return () => clearInterval(interval);
   }, [pollProgress]);
 

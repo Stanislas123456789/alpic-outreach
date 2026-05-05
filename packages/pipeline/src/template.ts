@@ -7,6 +7,11 @@ import { Contact, Language } from './types';
 const TRACKING_BASE = (process.env.TRACKING_BASE_URL || 'https://track.alpic.ai').replace(/\/$/, '');
 const OPENAI_DOC_URL = 'https://developers.openai.com/apps-sdk/deploy';
 
+// Escape HTML special chars to prevent malformed emails from sheet data
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // ─── Parse competitors string into array ─────────────────────────────────────
 
 function parseCompetitors(competitors: string): string[] {
@@ -83,11 +88,11 @@ export function buildBody(contact: Contact, sheetId?: string, sheetTab?: string,
 
   if (contact.language === 'FR') {
     return `
-<p>Bonjour ${contact.firstName},</p>
+<p>Bonjour ${escHtml(contact.firstName)},</p>
 
-<p>${compStr} viennent de lancer leurs ${appWord} ChatGPT. Leurs services sont désormais intégrés et nativement accessibles à plus de 900M d'utilisateurs ChatGPT. Ce marché est actif depuis janvier 2026 et nous pensons que c'est une réelle opportunité pour ${contact.company}. C'est quelque chose que vous regardez&nbsp;?</p>
+<p>${compStr} viennent de lancer leurs ${appWord} ChatGPT. Leurs services sont désormais intégrés et nativement accessibles à plus de 900M d'utilisateurs ChatGPT. Ce marché est actif depuis janvier 2026 et nous pensons que c'est une réelle opportunité pour ${escHtml(contact.company)}. C'est quelque chose que vous regardez&nbsp;?</p>
 
-<p>Alpic est actuellement le premier développeur d'apps au monde et la solution de référence dans la <a href="${OPENAI_DOC_URL}">documentation OpenAI</a>. Je serais ravi de vous donner plus de détails et d'explorer la pertinence pour ${contact.company} en 15 minutes.</p>
+<p>Alpic est actuellement le premier développeur d'apps au monde et la solution de référence dans la <a href="${OPENAI_DOC_URL}">documentation OpenAI</a>. Je serais ravi de vous donner plus de détails et d'explorer la pertinence pour ${escHtml(contact.company)} en 15 minutes.</p>
 
 <p>Cordialement,<br>Stanislas Michel</p>
 
@@ -96,11 +101,11 @@ export function buildBody(contact: Contact, sheetId?: string, sheetTab?: string,
 
   // English (default)
   return `
-<p>Hi ${contact.firstName},</p>
+<p>Hi ${escHtml(contact.firstName)},</p>
 
-<p>${compStr} just launched their ChatGPT ${appWord}. Their services are now integrated and natively accessible to 900M+ ChatGPT users. This market is live since January 2026 and we think it could be a great opportunity for ${contact.company}. Is it something you're looking at?</p>
+<p>${compStr} just launched their ChatGPT ${appWord}. Their services are now integrated and natively accessible to 900M+ ChatGPT users. This market is live since January 2026 and we think it could be a great opportunity for ${escHtml(contact.company)}. Is it something you're looking at?</p>
 
-<p>Alpic is currently the first app developer in the world and the reference solution in the <a href="${OPENAI_DOC_URL}">OpenAI documentation</a>. Would be happy to give you more insights and explore relevance for ${contact.company} in a quick 15-minute talk.</p>
+<p>Alpic is currently the first app developer in the world and the reference solution in the <a href="${OPENAI_DOC_URL}">OpenAI documentation</a>. Would be happy to give you more insights and explore relevance for ${escHtml(contact.company)} in a quick 15-minute talk.</p>
 
 <p>Best,<br>Stanislas Michel</p>
 
@@ -115,7 +120,7 @@ export function previewEmail(contact: Contact): void {
   console.log(`FROM:    ${contact.assignedTo}`);
   console.log(`SUBJECT: ${buildSubject(contact)}`);
   console.log(`LANG:    ${contact.language}`);
-  console.log(`COMPANY: ${contact.company}`);
+  console.log(`COMPANY: ${escHtml(contact.company)}`);
   console.log(`COMPS:   ${contact.competitors}`);
   console.log('─'.repeat(60) + '\n');
 }

@@ -7,7 +7,9 @@ import { Pool } from 'pg';
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL?.includes('railway') ? { rejectUnauthorized: false } : false,
-  max: 5,
+  max: 10,
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
 });
 
 // ─── Schema init ─────────────────────────────────────────────────────────────
@@ -60,6 +62,15 @@ export async function initDb(): Promise<void> {
       PRIMARY KEY (sender_email, date)
     );
 
+    CREATE TABLE IF NOT EXISTS senders (
+      email TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      daily_limit INTEGER DEFAULT 80,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+
     CREATE TABLE IF NOT EXISTS sheet_sources (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -74,9 +85,13 @@ export async function initDb(): Promise<void> {
     ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS send_window JSONB;
     ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS week_schedule JSONB;
     ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sender_email TEXT;
-  `).catch(() => {
-    // Column may already exist or table may not exist yet — safe to ignore
-  });
+  `).catch(() => {});
+  // Performance indexes
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_events_type ON campaign_events(type);
+    CREATE INDEX IF NOT EXISTS idx_events_email ON campaign_events(email);
+    CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status);
+  `).catch(() => {});
 
   console.log('[db] Postgres tables ready');
 }
@@ -165,8 +180,20 @@ export async function getCampaigns(limit = 50): Promise<DbCampaign[]> {
 }
 
 export async function getCampaign(id: string): Promise<DbCampaign | null> {
-  const results = await getCampaigns(100);
-  return results.find(c => c.id === id) || null;
+  const { rows } = await pool.query(`SELECT * FROM campaigns WHERE id = $1 LIMIT 1`, [id]);
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: r.id, name: r.name, sheetId: r.sheet_id, sheetTab: r.sheet_tab,
+    status: r.status, sent: r.sent, total: r.total, error: r.error,
+    templateId: r.template_id, followUp: r.follow_up, followUp2: r.follow_up2,
+    followUpUnsubscribeEnabled: r.follow_up_unsub, unsubscribeEnabled: r.unsub_enabled,
+    sendWindow: r.send_window, weekSchedule: r.week_schedule, senderEmail: r.sender_email,
+    startedAt: r.started_at?.toISOString() || null,
+    scheduledAt: r.scheduled_at?.toISOString() || null,
+    completedAt: r.completed_at?.toISOString() || null,
+    createdAt: r.created_at?.toISOString(),
+  };
 }
 
 export async function updateCampaignStatus(id: string, status: string, extra?: { sent?: number; total?: number; error?: string; startedAt?: string; completedAt?: string }): Promise<void> {
@@ -193,10 +220,10 @@ export async function addCampaignEvent(campaignId: string, event: {
   `, [campaignId, event.type, event.contactId, event.email, event.firstName, event.company, event.via, event.error, event.idx, event.total]);
 }
 
-export async function getCampaignEvents(campaignId: string): Promise<any[]> {
+export async function getCampaignEvents(campaignId: string, limit = 1000): Promise<any[]> {
   const { rows } = await pool.query(
-    `SELECT type, contact_id, email, first_name, company, via, error, idx, total, created_at FROM campaign_events WHERE campaign_id = $1 ORDER BY id`,
-    [campaignId]
+    `SELECT type, contact_id, email, first_name, company, via, error, idx, total, created_at FROM campaign_events WHERE campaign_id = $1 ORDER BY id LIMIT $2`,
+    [campaignId, limit]
   );
   return rows.map(r => ({
     type: r.type, contactId: r.contact_id, email: r.email, firstName: r.first_name,
@@ -261,6 +288,33 @@ export async function getAllSenderDailyCounts(): Promise<Record<string, number>>
 
 export function isDbAvailable(): boolean {
   return !!process.env.DATABASE_URL;
+}
+
+// ─── Senders (persisted in Postgres — survives Railway restarts) ─────────────
+
+export async function dbGetSenders(): Promise<{ email: string; name: string; refreshToken: string; dailyLimit: number }[]> {
+  const { rows } = await pool.query(`SELECT email, name, refresh_token, daily_limit FROM senders ORDER BY created_at`);
+  return rows.map(r => ({ email: r.email, name: r.name, refreshToken: r.refresh_token, dailyLimit: r.daily_limit }));
+}
+
+export async function dbUpsertSender(sender: { email: string; name: string; refreshToken: string; dailyLimit?: number }): Promise<void> {
+  await pool.query(`
+    INSERT INTO senders (email, name, refresh_token, daily_limit, updated_at)
+    VALUES ($1, $2, $3, $4, now())
+    ON CONFLICT (email) DO UPDATE SET
+      name = EXCLUDED.name,
+      refresh_token = EXCLUDED.refresh_token,
+      daily_limit = COALESCE(EXCLUDED.daily_limit, senders.daily_limit),
+      updated_at = now()
+  `, [sender.email, sender.name, sender.refreshToken, sender.dailyLimit || 80]);
+}
+
+export async function dbUpdateSenderToken(email: string, refreshToken: string): Promise<void> {
+  await pool.query(`UPDATE senders SET refresh_token = $2, updated_at = now() WHERE email = $1`, [email, refreshToken]);
+}
+
+export async function dbDeleteSender(email: string): Promise<void> {
+  await pool.query(`DELETE FROM senders WHERE email = $1`, [email]);
 }
 
 // ─── Sheet sources (shared across team) ─────────────────────────────────────

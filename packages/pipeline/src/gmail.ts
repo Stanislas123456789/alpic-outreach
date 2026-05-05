@@ -23,6 +23,25 @@ const ENV_PATH = path.resolve(__dirname, '../.env');
 const CLIENT_ID = process.env.GMAIL_CLIENT_ID!;
 const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET!;
 
+// ─── Retry with exponential backoff for transient Gmail API errors ────────────
+
+async function withRetry<T>(fn: () => Promise<T>, label = 'Gmail API', maxRetries = 2): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const status = err?.response?.status || err?.code;
+      const isRetryable = status === 429 || status === 503 || status === 500 ||
+        status === 'ECONNRESET' || status === 'ETIMEDOUT';
+      if (!isRetryable || attempt === maxRetries) throw err;
+      const delay = Math.pow(2, attempt + 1) * 1000;
+      console.warn(`[gmail] ${label} failed (${status}), retrying in ${delay / 1000}s (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('unreachable');
+}
+
 // ─── Load senders from env ────────────────────────────────────────────────────
 
 let _senders: Sender[] | null = null;
@@ -212,10 +231,10 @@ export async function sendEmail(
 
     const rawMessage = buildRawMessage(headers, htmlBody, options);
 
-    const res = await gmail.users.messages.send({
+    const res = await withRetry(() => gmail.users.messages.send({
       userId: 'me',
       requestBody: { raw: rawMessage },
-    });
+    }), `sendEmail(${to})`);
 
     sender.sentToday++;
 
@@ -257,10 +276,10 @@ export async function sendFollowUp(
 
     const rawMessage = buildRawMessage(headers, htmlBody, options);
 
-    const res = await gmail.users.messages.send({
+    const res = await withRetry(() => gmail.users.messages.send({
       userId: 'me',
       requestBody: { raw: rawMessage, threadId },
-    });
+    }), `sendFollowUp(${to})`);
 
     sender.sentToday++;
 
@@ -297,10 +316,10 @@ export async function createDraft(
 
     const rawMessage = buildRawMessage(headers, htmlBody, options);
 
-    const res = await gmail.users.drafts.create({
+    const res = await withRetry(() => gmail.users.drafts.create({
       userId: 'me',
       requestBody: { message: { raw: rawMessage } },
-    });
+    }), `createDraft(${to})`);
 
     return {
       success: true,
