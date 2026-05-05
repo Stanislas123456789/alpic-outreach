@@ -60,7 +60,7 @@ interface Campaign {
   sheetTab: string;
   startedAt: string | null;
   scheduledAt: string | null;
-  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled';
+  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled' | 'active';
   sent: number;
   total: number;
   log: ProgressEvent[];
@@ -70,11 +70,18 @@ interface Campaign {
   followUpUnsubscribeEnabled?: boolean;
   sendWindow?: { enabled: boolean; startHour: number; endHour: number };
   weekSchedule?: { activeDays: boolean[]; distributionMode: string; customWeights?: number[] };
-  ccEmail?: string;                // CC address (undefined = no CC)
-  listUnsubscribe?: boolean;       // Add List-Unsubscribe headers (default true)
-  plainTextFallback?: boolean;     // Include plain-text alternative (default true)
-  senderEmail?: string;            // Who launched this campaign
-  scheduledTimer?: ReturnType<typeof setTimeout>; // internal, not serialized
+  ccEmail?: string;
+  listUnsubscribe?: boolean;
+  plainTextFallback?: boolean;
+  senderEmail?: string;
+  speedMode?: string;
+  draftMode?: boolean;
+  unsubscribeEnabled?: boolean;
+  emailOverrides?: Record<string, { subject: string; body: string }>;
+  excludeIds?: string[];
+  maxEmails?: number;
+  daysSent?: number;               // how many days have sent so far
+  scheduledTimer?: ReturnType<typeof setTimeout>;
 }
 
 // ─── Persistence (Postgres + in-memory cache) ───────────────────────────────
@@ -115,21 +122,36 @@ export async function loadCampaignsFromDb(): Promise<void> {
       if (r.status === 'running') {
         db.updateCampaignStatus(r.id, 'error', { error: 'Server restarted during execution' }).catch(() => {});
       }
-      // Re-schedule campaigns that were scheduled for the future
-      if (status === 'scheduled' && r.scheduledAt) {
+      // Re-schedule campaigns that were scheduled or active (multi-day) for the future
+      if ((status === 'scheduled' || status === 'active') && r.scheduledAt) {
         const scheduleTime = new Date(r.scheduledAt);
         const now = new Date();
+        const c = campaigns.get(r.id)!;
         if (scheduleTime > now) {
           const delay = scheduleTime.getTime() - now.getTime();
-          const c = campaigns.get(r.id)!;
           c.scheduledTimer = setTimeout(() => {
-            executeCampaign(c, [], {}, undefined, undefined, false, r.senderEmail);
+            executeCampaign(c, [], c.emailOverrides || {},
+              c.maxEmails, c.speedMode, c.draftMode,
+              c.senderEmail, c.unsubscribeEnabled,
+              c.sendWindow, c.weekSchedule, c.ccEmail,
+              c.listUnsubscribe, c.plainTextFallback);
           }, delay);
-          console.log(`[campaigns] Re-scheduled campaign ${r.id} for ${r.scheduledAt}`);
+          console.log(`[campaigns] Re-scheduled ${status} campaign ${r.id} for ${r.scheduledAt}`);
+        } else if (status === 'active') {
+          // Active multi-day campaign missed its slot — run it now
+          console.log(`[campaigns] Active campaign ${r.id} missed slot ${r.scheduledAt} — running now`);
+          c.status = 'scheduled';
+          setTimeout(() => {
+            executeCampaign(c, [], c.emailOverrides || {},
+              c.maxEmails, c.speedMode, c.draftMode,
+              c.senderEmail, c.unsubscribeEnabled,
+              c.sendWindow, c.weekSchedule, c.ccEmail,
+              c.listUnsubscribe, c.plainTextFallback);
+          }, 10000); // 10s delay to let server finish booting
         } else {
-          // Scheduled time has passed — mark as missed
+          // Scheduled (not active) that missed its time
           db.updateCampaignStatus(r.id, 'error', { error: 'Missed scheduled time during server restart' }).catch(() => {});
-          campaigns.get(r.id)!.status = 'error';
+          c.status = 'error' as Campaign['status'];
           campaigns.get(r.id)!.error = 'Missed scheduled time during server restart';
         }
       }
@@ -299,14 +321,54 @@ async function executeCampaign(
     });
 
     syncSentCounts(getSenders());
+    campaign.daysSent = (campaign.daysSent || 0) + 1;
+
+    // Multi-day campaign: if weekSchedule has more active days ahead and there
+    // are likely remaining contacts, set status to "active" and schedule next day
+    const isMultiDay = campaign.weekSchedule?.activeDays?.filter(Boolean).length! > 1;
+    if (isMultiDay) {
+      const { getPendingContacts } = await import('../../../pipeline/src/sheets');
+      const remaining = await getPendingContacts(1, campaign.sheetId, campaign.sheetTab);
+      if (remaining.length > 0) {
+        // Find next active day
+        const today = new Date().getDay();
+        const days = campaign.weekSchedule!.activeDays;
+        let nextDayOffset = 0;
+        for (let d = 1; d <= 7; d++) {
+          const dayIdx = (today + d) % 7;
+          if (days[dayIdx]) { nextDayOffset = d; break; }
+        }
+        if (nextDayOffset > 0) {
+          const nextRun = new Date();
+          nextRun.setDate(nextRun.getDate() + nextDayOffset);
+          nextRun.setHours(campaign.sendWindow?.startHour || 9, 0, 0, 0);
+          campaign.status = 'active';
+          campaign.scheduledAt = nextRun.toISOString();
+          campaign.scheduledTimer = setTimeout(() => {
+            executeCampaign(campaign, [], campaign.emailOverrides || {},
+              campaign.maxEmails, campaign.speedMode, campaign.draftMode,
+              campaign.senderEmail, campaign.unsubscribeEnabled,
+              campaign.sendWindow, campaign.weekSchedule, campaign.ccEmail,
+              campaign.listUnsubscribe, campaign.plainTextFallback);
+          }, nextRun.getTime() - Date.now());
+          console.log(`[api] Campaign ${campaign.id} day ${campaign.daysSent} complete — next run ${nextRun.toISOString()} (${remaining.length} contacts remaining)`);
+          campaign.log.push({ type: 'done', timestamp: new Date().toISOString() });
+          saveCampaignToDb(campaign);
+          return; // Don't fall through to "done" status
+        }
+      }
+    }
+
     campaign.status = 'done';
-    console.log(`[api] Campaign ${campaign.id} complete`);
+    console.log(`[api] Campaign ${campaign.id} complete (${campaign.daysSent || 1} day${(campaign.daysSent || 1) > 1 ? 's' : ''})`);
   } catch (err: any) {
     campaign.status = 'error';
     campaign.error = err.message;
     console.error(`[api] Campaign ${campaign.id} error:`, err.message);
   } finally {
-    campaign.log.push({ type: 'done', timestamp: new Date().toISOString() });
+    if (campaign.status !== 'active') {
+      campaign.log.push({ type: 'done', timestamp: new Date().toISOString() });
+    }
     saveCampaignToDb(campaign);
   }
 }
@@ -326,7 +388,6 @@ router.post('/run', async (req: Request, res: Response) => {
   const sheetId: string = req.body?.sheetId || process.env.GOOGLE_SHEET_ID || '';
   const sheetTab: string = req.body?.tab || process.env.GOOGLE_SHEET_TAB || 'Master Table';
   console.log(`[campaign] Sheet: ${sheetId} / Tab: ${sheetTab} (from body: ${!!req.body?.sheetId})`);
-  const emailOverrides: Record<string, { subject: string; body: string }> = req.body?.emailOverrides || {};
   const scheduledAt: string | undefined = req.body?.scheduledAt;
   const maxEmails: number | undefined = req.body?.maxEmails ? Number(req.body.maxEmails) : undefined;
   const speedMode: string | undefined = req.body?.speedMode;
@@ -373,6 +434,7 @@ router.post('/run', async (req: Request, res: Response) => {
     bodyEn: followUp2Raw.bodyEn || '',
     bodyFr: followUp2Raw.bodyFr || '',
   } : undefined;
+  const emailOverrides: Record<string, { subject: string; body: string }> = req.body?.emailOverrides || {};
   const campaign: Campaign = {
     id: campaignId,
     name,
@@ -393,6 +455,13 @@ router.post('/run', async (req: Request, res: Response) => {
     listUnsubscribe,
     plainTextFallback,
     senderEmail,
+    speedMode,
+    draftMode,
+    unsubscribeEnabled,
+    emailOverrides,
+    excludeIds,
+    maxEmails,
+    daysSent: 0,
   };
 
   campaigns.set(campaignId, campaign);

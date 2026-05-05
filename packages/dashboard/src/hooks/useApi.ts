@@ -69,14 +69,15 @@ export interface Campaign {
   sheetTab: string;
   startedAt: string | null;
   scheduledAt: string | null;
-  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled';
+  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled' | 'active';
   sent: number;
   total: number;
   log: ProgressEvent[];
   error?: string;
-  sentEmails?: string[];  // emails sent in this campaign (from Postgres)
-  senderEmail?: string;   // who launched this campaign
+  sentEmails?: string[];
+  senderEmail?: string;
   templateId?: string;
+  daysSent?: number;      // multi-day: how many days have sent so far
   followUp?: { enabled: boolean; delayDays: number; subjectEn: string; subjectFr: string; bodyEn: string; bodyFr: string };
   followUp2?: { enabled: boolean; delayDays: number; subjectEn: string; subjectFr: string; bodyEn: string; bodyFr: string };
   sendWindow?: { enabled: boolean; startHour: number; endHour: number };

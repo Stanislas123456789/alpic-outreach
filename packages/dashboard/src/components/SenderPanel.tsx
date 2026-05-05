@@ -273,6 +273,7 @@ function CampaignCard({
     scheduled: { color: '#f59e0b', bg: '#f59e0b18', label: 'Scheduled', pulse: false },
     running:   { color: '#34d399', bg: '#34d39918', label: 'Running',   pulse: true  },
     done:      { color: '#34d399', bg: '#34d39918', label: 'Done',      pulse: false },
+    active:    { color: '#6366f1', bg: '#6366f118', label: `Active — Day ${campaign.daysSent || 1}`, pulse: true },
     error:     { color: '#f87171', bg: '#f8717118', label: 'Error',     pulse: false },
     cancelled: { color: '#94a3b8', bg: '#94a3b818', label: 'Cancelled', pulse: false },
   }[campaign.status];
@@ -373,6 +374,25 @@ function CampaignCard({
           {displayTime && (
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0 }}>
               {campaign.status === 'done' ? 'Completed' : 'Failed'} {formatCompletedTime(displayTime)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Active multi-day campaign info */}
+      {campaign.status === 'active' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' as const }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#6366f1' }}>{campaign.sent}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>sent so far</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{campaign.daysSent || 1}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>day{(campaign.daysSent || 1) > 1 ? 's' : ''} done</span>
+          </div>
+          {campaign.scheduledAt && (
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6366f1', flexShrink: 0 }}>
+              Next batch: {new Date(campaign.scheduledAt).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} at {new Date(campaign.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
         </div>
