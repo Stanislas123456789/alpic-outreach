@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { readSenders, syncSentCounts } from '../senders';
 import * as db from '../db';
+import { listSources } from '../db';
 
 const router = Router();
 
@@ -208,6 +209,43 @@ function saveCampaignToDb(c: Campaign): void {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Returns ALL known sheets — from sources DB + campaigns + default env var.
+// Used for cross-sheet dedup to ensure we never email someone twice.
+export async function getAllKnownSheets(): Promise<{ sheetId: string; sheetTab: string }[]> {
+  const seen = new Set<string>();
+  const result: { sheetId: string; sheetTab: string }[] = [];
+  // 1. Sheet sources (the authoritative list of all connected sheets)
+  if (db.isDbAvailable()) {
+    try {
+      const sources = await listSources();
+      for (const s of sources) {
+        const key = `${s.sheetId}::${s.sheetTab}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push({ sheetId: s.sheetId, sheetTab: s.sheetTab });
+        }
+      }
+    } catch {}
+  }
+  // 2. Campaign sheets (in case some aren't in sources)
+  for (const c of campaigns.values()) {
+    if (!c.sheetId) continue;
+    const key = `${c.sheetId}::${c.sheetTab}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push({ sheetId: c.sheetId, sheetTab: c.sheetTab });
+    }
+  }
+  // 3. Default env var sheet
+  const defaultId = process.env.GOOGLE_SHEET_ID || '';
+  const defaultTab = process.env.GOOGLE_SHEET_TAB || 'Sheet1';
+  const defaultKey = `${defaultId}::${defaultTab}`;
+  if (defaultId && !seen.has(defaultKey)) {
+    result.push({ sheetId: defaultId, sheetTab: defaultTab });
+  }
+  return result;
+}
+
 // Returns unique {sheetId, sheetTab} pairs from all known campaigns (recent first).
 // Used by the cron to run reply/bounce checks across every active sheet.
 export function getUniqueCampaignSheets(): { sheetId: string; sheetTab: string }[] {
@@ -300,7 +338,7 @@ async function executeCampaign(
 
     // Cross-sheet dedup: load all contacted emails from ALL known sheets
     // so we never email someone who was already contacted from a different sheet
-    const allSheets = getUniqueCampaignSheets();
+    const allSheets = await getAllKnownSheets();
     await loadGloballyContactedEmails(allSheets).catch(err =>
       console.warn('[dedup] Failed to load global dedup set:', err.message)
     );
@@ -617,7 +655,7 @@ router.get('/preview', async (req: Request, res: Response) => {
     setUserSheetsToken(preferred.refreshToken);
 
     // Cross-sheet dedup: load all contacted emails so preview excludes them
-    const allSheets = getUniqueCampaignSheets();
+    const allSheets = await getAllKnownSheets();
     await loadGloballyContactedEmails(allSheets).catch(() => {});
 
     const pending = await getPendingContacts(limit, sheetId, tab);
