@@ -9,7 +9,7 @@ dotenv.config();
 
 import { getPendingContacts, updateContactStatus, ensureTrackingHeaders } from './sheets';
 import { validateEmail } from './validator';
-import { buildSubject, buildBody, buildTrackingSnippet, buildUnsubscribeUrl, previewEmail } from './template';
+import { buildSubject, buildBody, buildTrackingSnippet, buildUnsubscribeUrl, previewEmail, validateEmailContent } from './template';
 import { pickSender, sendEmail, createDraft, resetDailyCounters, getSendStats, EmailOptions } from './gmail';
 import { checkReplies, checkBounces } from './tracker';
 import { Contact } from './types';
@@ -137,6 +137,25 @@ async function processContact(
   const body    = preBody
     ? preBody + buildTrackingSnippet(contact, sheetId, sheetTab, unsubscribeEnabled)
     : buildBody(contact, sheetId, sheetTab, unsubscribeEnabled);
+
+  // 4b. Safety check: validate email content before sending
+  const contentCheck = validateEmailContent(subject, body);
+  if (!contentCheck.ok) {
+    log(`[safety] Blocked email to ${contact.email}: ${contentCheck.issues.join(', ')}`, 'warn');
+    await updateContactStatus(contact.rowIndex, {
+      status: 'skipped' as any,
+    }, sheetId, sheetTab);
+    onProgress?.({
+      type: 'skipped',
+      contactId: contact.id,
+      email: contact.email,
+      firstName: contact.firstName,
+      company: contact.company,
+      error: `Content validation failed: ${contentCheck.issues.join(', ')}`,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
 
   // 5. Dry run preview
   if (DRY_RUN) {

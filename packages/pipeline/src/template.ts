@@ -112,6 +112,37 @@ export function buildBody(contact: Contact, sheetId?: string, sheetTab?: string,
 <img src="${trackingPixel}" width="1" height="1" alt="" style="display:none"/>${unsubFooter}`.trim();
 }
 
+// ─── Email content safety validator ──────────────────────────────────────────
+
+export function validateEmailContent(subject: string, body: string): { ok: boolean; issues: string[] } {
+  const issues: string[] = [];
+
+  if (!subject || !subject.trim()) {
+    issues.push('Subject is empty');
+  }
+  if (!body || !body.trim()) {
+    issues.push('Body is empty');
+  }
+
+  // Check for unresolved template variables like {firstName}, {company}, etc.
+  const unresolvedPattern = /\{[a-zA-Z_][a-zA-Z0-9_]*\}/g;
+  const subjectMatches = subject?.match(unresolvedPattern);
+  if (subjectMatches) {
+    issues.push(`Unresolved variables in subject: ${[...new Set(subjectMatches)].join(', ')}`);
+  }
+  const bodyMatches = body?.match(unresolvedPattern);
+  if (bodyMatches) {
+    issues.push(`Unresolved variables in body: ${[...new Set(bodyMatches)].join(', ')}`);
+  }
+
+  // Subject should not contain HTML tags (likely a bug — body leaked into subject)
+  if (subject && /<[a-zA-Z][^>]*>/.test(subject)) {
+    issues.push('Subject contains HTML tags (likely a bug)');
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
 // ─── Preview (for dry run logging) ───────────────────────────────────────────
 
 export function previewEmail(contact: Contact): void {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { buildSubject, buildBody, buildTrackingSnippet, buildUnsubscribeFooter, buildUnsubscribeUrl } from './template';
+import { buildSubject, buildBody, buildTrackingSnippet, buildUnsubscribeFooter, buildUnsubscribeUrl, validateEmailContent } from './template';
 import { Contact } from './types';
 
 function makeContact(overrides: Partial<Contact> = {}): Contact {
@@ -170,6 +170,79 @@ describe('buildUnsubscribeFooter', () => {
     const sig1 = f1.match(/sig=([a-f0-9]+)/)?.[1];
     const sig2 = f2.match(/sig=([a-f0-9]+)/)?.[1];
     expect(sig1).not.toBe(sig2);
+  });
+});
+
+describe('validateEmailContent', () => {
+  it('passes for valid subject and body', () => {
+    const result = validateEmailContent('Hello World', '<p>Hi there!</p>');
+    expect(result.ok).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it('fails for empty subject', () => {
+    const result = validateEmailContent('', '<p>Body here</p>');
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContain('Subject is empty');
+  });
+
+  it('fails for empty body', () => {
+    const result = validateEmailContent('Subject', '');
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContain('Body is empty');
+  });
+
+  it('fails for whitespace-only subject', () => {
+    const result = validateEmailContent('   ', '<p>Body</p>');
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContain('Subject is empty');
+  });
+
+  it('detects unresolved variables in subject', () => {
+    const result = validateEmailContent('Hi {firstName}', '<p>Body</p>');
+    expect(result.ok).toBe(false);
+    expect(result.issues.some(i => i.includes('{firstName}'))).toBe(true);
+  });
+
+  it('detects unresolved variables in body', () => {
+    const result = validateEmailContent('Subject', '<p>Hi {firstName}, welcome to {company}</p>');
+    expect(result.ok).toBe(false);
+    expect(result.issues.some(i => i.includes('{firstName}'))).toBe(true);
+    expect(result.issues.some(i => i.includes('{company}'))).toBe(true);
+  });
+
+  it('detects HTML tags in subject', () => {
+    const result = validateEmailContent('<p>Broken subject</p>', '<p>Body</p>');
+    expect(result.ok).toBe(false);
+    expect(result.issues.some(i => i.includes('HTML tags'))).toBe(true);
+  });
+
+  it('does not flag HTML in body (expected)', () => {
+    const result = validateEmailContent('Good subject', '<p>HTML body is fine</p>');
+    expect(result.ok).toBe(true);
+  });
+
+  it('reports multiple issues at once', () => {
+    const result = validateEmailContent('', '');
+    expect(result.ok).toBe(false);
+    expect(result.issues.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not flag curly braces in URLs or CSS', () => {
+    // Things like style="display:none" or JSON shouldn't trigger the regex
+    // since the pattern requires {variableName} format
+    const result = validateEmailContent('Hello', '<img style="display:none"/>');
+    expect(result.ok).toBe(true);
+  });
+
+  it('deduplicates repeated unresolved variables', () => {
+    const result = validateEmailContent('Subject', '{firstName} and {firstName} again');
+    expect(result.ok).toBe(false);
+    // Should only list {firstName} once
+    const bodyIssue = result.issues.find(i => i.includes('Unresolved variables in body'));
+    expect(bodyIssue).toBeDefined();
+    const matches = bodyIssue!.match(/\{firstName\}/g);
+    expect(matches).toHaveLength(1);
   });
 });
 

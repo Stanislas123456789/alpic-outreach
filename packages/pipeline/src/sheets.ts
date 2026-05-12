@@ -504,7 +504,7 @@ export async function getContactAtRow(
   rowIndex: number,
   sheetId = SHEET_ID,
   sheetTab = SHEET_TAB,
-): Promise<{ email: string; status: string; openCount: number } | null> {
+): Promise<{ email: string; status: string; openCount: number; touch2SentAt: string; touch3SentAt: string } | null> {
   const sheets = getSheetsClient();
   const res = await withRetry(() => sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
@@ -516,6 +516,8 @@ export async function getContactAtRow(
     email: row[SHEET_COLUMNS.email] || '',
     status: (row[SHEET_COLUMNS.status] || '').toLowerCase().trim(),
     openCount: parseInt(row[SHEET_COLUMNS.openCount]) || 0,
+    touch2SentAt: row[SHEET_COLUMNS.touch2SentAt] || '',
+    touch3SentAt: row[SHEET_COLUMNS.touch3SentAt] || '',
   };
 }
 

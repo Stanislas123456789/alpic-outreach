@@ -4,8 +4,8 @@
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { getSenders, sendFollowUp, EmailOptions } from './gmail';
-import { getSentContacts, updateContactStatus, updateTouchTracking } from './sheets';
-import { buildUnsubscribeFooter, buildUnsubscribeUrl } from './template';
+import { getSentContacts, updateContactStatus, updateTouchTracking, getContactAtRow } from './sheets';
+import { buildUnsubscribeFooter, buildUnsubscribeUrl, validateEmailContent } from './template';
 import dayjs from 'dayjs';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -298,6 +298,34 @@ export async function sendFollowUps(
     const subject = fill(isFr ? activeConfig.subjectFr : activeConfig.subjectEn);
     const unsubFooter = unsubscribeEnabled ? buildUnsubscribeFooter(contact.email, contact.language as any || 'EN') : '';
     const body = fill(isFr ? activeConfig.bodyFr : activeConfig.bodyEn) + unsubFooter;
+
+    // Safety check: validate email content before sending
+    const contentCheck = validateEmailContent(subject, body);
+    if (!contentCheck.ok) {
+      console.warn(`[safety] Blocked follow-up to ${contact.email}: ${contentCheck.issues.join(', ')}`);
+      skipped++;
+      continue;
+    }
+
+    // Dedup protection: re-read the row to guard against race conditions
+    // (cron runs every 15min; the sheet may not have been updated yet from a previous run)
+    try {
+      const freshRow = await getContactAtRow(contact.rowIndex, sheetId, sheetTab);
+      if (freshRow) {
+        if (touchNum === 2 && freshRow.touch2SentAt) {
+          console.log(`⏭️  Skipping touch2 for ${contact.email} — already sent (dedup re-read)`);
+          skipped++;
+          continue;
+        }
+        if (touchNum === 3 && freshRow.touch3SentAt) {
+          console.log(`⏭️  Skipping touch3 for ${contact.email} — already sent (dedup re-read)`);
+          skipped++;
+          continue;
+        }
+      }
+    } catch (err) {
+      console.warn(`⚠️  Dedup re-read failed for row ${contact.rowIndex}, proceeding with send:`, err);
+    }
 
     try {
       const followUpEmailOpts: EmailOptions = {
