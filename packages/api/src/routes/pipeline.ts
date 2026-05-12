@@ -122,16 +122,59 @@ export async function loadCampaignsFromDb(): Promise<void> {
       if (r.status === 'running') {
         db.updateCampaignStatus(r.id, 'error', { error: 'Server restarted during execution' }).catch(() => {});
       }
-      // SAFETY: Never auto-execute campaigns on server boot. All scheduled/active
-      // campaigns require manual re-launch from the dashboard. This prevents
-      // ghost sends when the server restarts or migrates to a new environment.
-      if (status === 'scheduled' || status === 'active') {
+      // Re-schedule campaigns that were scheduled or active (multi-day) for the future
+      if ((status === 'scheduled' || status === 'active') && r.scheduledAt) {
+        const scheduleTime = new Date(r.scheduledAt);
+        const now = new Date();
         const c = campaigns.get(r.id)!;
-        const msg = `Server restarted — campaign paused. Re-launch manually from the dashboard.`;
-        c.status = 'error' as Campaign['status'];
-        c.error = msg;
-        db.updateCampaignStatus(r.id, 'error', { error: msg }).catch(() => {});
-        console.log(`[campaigns] Paused ${status} campaign ${r.id} — manual re-launch required`);
+        if (scheduleTime > now) {
+          const delay = scheduleTime.getTime() - now.getTime();
+          c.scheduledTimer = setTimeout(() => {
+            executeCampaign(c, [], c.emailOverrides || {},
+              c.maxEmails, c.speedMode, c.draftMode,
+              c.senderEmail, c.unsubscribeEnabled,
+              c.sendWindow, c.weekSchedule, c.ccEmail,
+              c.listUnsubscribe, c.plainTextFallback);
+          }, delay);
+          console.log(`[campaigns] Re-scheduled ${status} campaign ${r.id} for ${r.scheduledAt}`);
+        } else if (status === 'active') {
+          // Active multi-day campaign missed its slot — find the next active day
+          // instead of running immediately (prevents surprise sends after migration)
+          const days = c.weekSchedule?.activeDays;
+          const today = new Date().getDay();
+          let nextDayOffset = 0;
+          if (days) {
+            for (let d = 1; d <= 7; d++) {
+              const dayIdx = (today + d) % 7;
+              if (days[dayIdx]) { nextDayOffset = d; break; }
+            }
+          }
+          if (nextDayOffset > 0 && days) {
+            const nextRun = new Date();
+            nextRun.setDate(nextRun.getDate() + nextDayOffset);
+            nextRun.setHours(c.sendWindow?.startHour || 9, 0, 0, 0);
+            c.scheduledAt = nextRun.toISOString();
+            c.scheduledTimer = setTimeout(() => {
+              executeCampaign(c, [], c.emailOverrides || {},
+                c.maxEmails, c.speedMode, c.draftMode,
+                c.senderEmail, c.unsubscribeEnabled,
+                c.sendWindow, c.weekSchedule, c.ccEmail,
+                c.listUnsubscribe, c.plainTextFallback);
+            }, nextRun.getTime() - Date.now());
+            db.saveCampaign({ ...c, scheduledAt: nextRun.toISOString() } as any).catch(() => {});
+            console.log(`[campaigns] Active campaign ${r.id} missed slot — rescheduled for next active day ${nextRun.toISOString()}`);
+          } else {
+            // No future active days — mark as done
+            c.status = 'done' as Campaign['status'];
+            db.updateCampaignStatus(r.id, 'done', {}).catch(() => {});
+            console.log(`[campaigns] Active campaign ${r.id} has no more active days — marked done`);
+          }
+        } else {
+          // Scheduled (not active) that missed its time
+          db.updateCampaignStatus(r.id, 'error', { error: 'Missed scheduled time during server restart' }).catch(() => {});
+          c.status = 'error' as Campaign['status'];
+          c.error = 'Missed scheduled time during server restart';
+        }
       }
     }
     console.log(`[campaigns] Loaded ${campaigns.size} campaigns from Postgres`);
