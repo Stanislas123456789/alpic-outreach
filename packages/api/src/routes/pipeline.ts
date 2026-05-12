@@ -889,4 +889,140 @@ router.post('/backfill-sent', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/pipeline/global-stats — cumulative stats across ALL sheet sources
+router.get('/global-stats', async (req: Request, res: Response) => {
+  try {
+    const { setUserSheetsToken } = await import('../../../pipeline/src/sheets');
+    const { SHEET_COLUMNS } = await import('../../../pipeline/src/types');
+
+    // Auth: inject user token for Sheets access (same pattern as /preview)
+    const senders = readSenders().filter(s => !!s.refreshToken);
+    if (senders.length === 0) throw new Error('No senders connected');
+    const userEmail = req.headers['x-auth-email'] as string | undefined;
+    const preferred = (userEmail && senders.find(s => s.email === userEmail)) || senders[0];
+    setUserSheetsToken(preferred.refreshToken);
+
+    // Read all sheet sources from DB
+    const sources = await listSources();
+    if (sources.length === 0) {
+      res.json({
+        totalUniqueContacts: 0, totalContacted: 0, totalPending: 0,
+        totalOpened: 0, totalReplied: 0, totalBounced: 0, totalUnsubscribed: 0,
+        byIndustry: {},
+      });
+      return;
+    }
+
+    // Build Sheets client using user token
+    const { google } = await import('googleapis');
+    const CLIENT_ID = process.env.GMAIL_CLIENT_ID!;
+    const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET!;
+    const REDIRECT_URI = process.env.OAUTH_REDIRECT_URI || `http://localhost:${process.env.PORT || 4001}/api/senders/auth/callback`;
+    const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+    oauth2Client.setCredentials({ refresh_token: preferred.refreshToken });
+    const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+
+    // For dedup: track best status per unique email
+    const CONTACTED_STATUSES = new Set(['sent', 'opened', 'replied', 'bounced', 'yes', 'oui']);
+    interface ContactRecord {
+      status: string;
+      industry: string;
+      contacted: boolean;
+      optedOut: boolean;
+    }
+    const emailMap = new Map<string, ContactRecord>();
+
+    // Helper to quote tab names with spaces
+    function a1Tab(tab: string): string {
+      if (/[\s']/.test(tab)) return `'${tab.replace(/'/g, "\\'")}'`;
+      return tab;
+    }
+
+    // Read each source sheet
+    for (const source of sources) {
+      try {
+        const result = await sheets.spreadsheets.values.get({
+          spreadsheetId: source.sheetId,
+          range: `${a1Tab(source.sheetTab)}!A2:AJ`,
+        });
+        const rows = result.data.values || [];
+
+        for (const row of rows) {
+          const email = (row[SHEET_COLUMNS.email] || '').toString().trim().toLowerCase();
+          if (!email) continue;
+
+          const rawStatus = (row[SHEET_COLUMNS.status] || '').toString().toLowerCase().trim();
+          const sentAt = (row[SHEET_COLUMNS.sentAt] || '').toString().trim();
+          const threadId = (row[SHEET_COLUMNS.threadId] || '').toString().trim();
+          const industry = (row[SHEET_COLUMNS.industry] || '').toString().trim();
+          const optedOut = (row[SHEET_COLUMNS.optedOut] || '').toString().toUpperCase() === 'TRUE';
+          const contacted = CONTACTED_STATUSES.has(rawStatus) || !!sentAt || !!threadId;
+
+          const existing = emailMap.get(email);
+          if (!existing) {
+            emailMap.set(email, { status: rawStatus, industry, contacted, optedOut });
+          } else {
+            // Prefer the "most advanced" status: replied > opened > bounced > sent
+            const statusPriority: Record<string, number> = { replied: 5, opened: 4, bounced: 3, sent: 2, yes: 2, oui: 2, sending: 1 };
+            const existingPri = statusPriority[existing.status] || 0;
+            const newPri = statusPriority[rawStatus] || 0;
+            if (newPri > existingPri) {
+              existing.status = rawStatus;
+            }
+            if (contacted) existing.contacted = true;
+            if (optedOut) existing.optedOut = true;
+            if (!existing.industry && industry) existing.industry = industry;
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[global-stats] Failed to read source ${source.name} (${source.sheetTab}): ${err.message}`);
+      }
+    }
+
+    // Aggregate
+    let totalContacted = 0;
+    let totalPending = 0;
+    let totalOpened = 0;
+    let totalReplied = 0;
+    let totalBounced = 0;
+    let totalUnsubscribed = 0;
+    const byIndustry: Record<string, { contacted: number; total: number }> = {};
+
+    for (const [, record] of emailMap) {
+      // Industry aggregation
+      const ind = record.industry || 'Unknown';
+      if (!byIndustry[ind]) byIndustry[ind] = { contacted: 0, total: 0 };
+      byIndustry[ind].total++;
+
+      if (record.optedOut) totalUnsubscribed++;
+
+      if (record.contacted) {
+        totalContacted++;
+        byIndustry[ind].contacted++;
+
+        if (record.status === 'opened') totalOpened++;
+        if (record.status === 'replied') totalReplied++;
+        if (record.status === 'bounced') totalBounced++;
+      } else {
+        totalPending++;
+      }
+    }
+
+    res.json({
+      totalUniqueContacts: emailMap.size,
+      totalContacted,
+      totalPending,
+      totalOpened,
+      totalReplied,
+      totalBounced,
+      totalUnsubscribed,
+      byIndustry,
+    });
+  } catch (err: any) {
+    const msg = err.message || '';
+    const isPermission = /insufficient.?permission|403|forbidden|permission.?denied|no senders/i.test(msg);
+    res.status(isPermission ? 403 : 500).json({ error: msg });
+  }
+});
+
 export default router;

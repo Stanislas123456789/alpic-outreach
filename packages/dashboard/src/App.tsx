@@ -3,6 +3,7 @@ import { useAllSheets } from './hooks/useSheets';
 import { useAuth } from './hooks/useAuth';
 import { useConfig } from './hooks/useConfig';
 import { useApi, useCampaigns } from './hooks/useApi';
+import { useGlobalStats } from './hooks/useGlobalStats';
 import { StatCard } from './components/ui/StatCard';
 import { SkeletonKpiStrip } from './components/ui/Skeleton';
 import LoginPage from './components/LoginPage';
@@ -15,6 +16,8 @@ import IndustriesTab from './components/tabs/IndustriesTab';
 import PipelineTab from './components/tabs/PipelineTab';
 import CampaignsTab from './components/tabs/CampaignsTab';
 import './App.css';
+
+const ALL_WEEKS_ID = '__all__';
 
 type TabId = 'overview' | 'reps' | 'industries' | 'pipeline' | 'campaigns' | 'senders' | 'settings';
 
@@ -80,9 +83,12 @@ function computeTrend(contacts: { sentAt?: string; status: string; openCount: nu
 export default function App() {
   const { user, logout, loginWithKeyword, loginWithGoogle } = useAuth();
   const { sources, activeSource, activeId, setActiveId, addSource, updateSource, deleteSource, synced } = useConfig();
+  const isAllWeeks = activeId === ALL_WEEKS_ID;
+  const globalStats = useGlobalStats(isAllWeeks);
   // Don't load sheet data until config is synced from API (prevents loading stale env-var default)
+  // When "All Weeks" is selected, skip sheet fetching — KPI data comes from global-stats endpoint
   const emptySource = { id: '', name: '', sheetId: '', sheetTab: '' };
-  const sheetsData = useAllSheets(synced ? [activeSource] : [emptySource], 30000);
+  const sheetsData = useAllSheets(synced && !isAllWeeks ? [activeSource] : [emptySource], 30000);
   const contacts = sheetsData.contacts || [];
   const { loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = sheetsData;
   const emptyTouch = { sent: 0, opened: 0, replied: 0, unsubscribed: 0, openRate: 0, replyRate: 0, unsubRate: 0 };
@@ -121,9 +127,38 @@ export default function App() {
     replyRate: computeTrend(contacts, 'replyRate'),
   }), [contacts]);
 
+  // Derive KPI values — use global-stats endpoint when "All Weeks" is selected
+  const kpi = useMemo(() => {
+    if (isAllWeeks && globalStats.stats) {
+      const g = globalStats.stats;
+      const totalSent = g.totalContacted;
+      const bounceRate = totalSent > 0 ? Math.round((g.totalBounced / totalSent) * 100) : 0;
+      const openRate = totalSent > 0 ? Math.round((g.totalOpened / totalSent) * 100) : 0;
+      const replyRate = totalSent > 0 ? Math.round((g.totalReplied / totalSent) * 100) : 0;
+      return {
+        totalSent,
+        totalPending: g.totalPending,
+        bounceRate,
+        openRate,
+        replyRate,
+        replied: g.totalReplied,
+        unsubscribed: g.totalUnsubscribed,
+      };
+    }
+    return {
+      totalSent: stats.totalSent,
+      totalPending: stats.totalPending,
+      bounceRate: stats.bounceRate,
+      openRate: stats.openRate,
+      replyRate: stats.replyRate,
+      replied: contacts.filter(c => c.status === 'replied').length,
+      unsubscribed: followUpMetrics.totalUnsubscribed,
+    };
+  }, [isAllWeeks, globalStats.stats, stats, contacts, followUpMetrics]);
+
   if (!user) return <LoginPage loginWithKeyword={loginWithKeyword} loginWithGoogle={loginWithGoogle} />;
 
-  if (loading && contacts.length === 0) return (
+  if (!isAllWeeks && loading && contacts.length === 0) return (
     <div className="loading">
       <div className="loading-spinner" />
       <p>Loading pipeline data...</p>
@@ -159,6 +194,7 @@ export default function App() {
               value={activeId}
               onChange={e => setActiveId(e.target.value)}
             >
+              <option value={ALL_WEEKS_ID}>All Weeks</option>
               {sources.map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -186,9 +222,11 @@ export default function App() {
             );
           })()}
           <span className="last-updated">
-            {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : ''}
+            {(isAllWeeks ? globalStats.lastUpdated : lastUpdated)
+              ? `Updated ${(isAllWeeks ? globalStats.lastUpdated : lastUpdated)!.toLocaleTimeString()}`
+              : ''}
           </span>
-          <button className="refresh-btn" onClick={refresh}>Refresh</button>
+          <button className="refresh-btn" onClick={isAllWeeks ? globalStats.refresh : refresh}>Refresh</button>
           {/* Launch Campaign CTA (admin only) */}
           {user?.email?.endsWith('@alpic.ai') && (
             <button
@@ -282,21 +320,28 @@ export default function App() {
       </header>
 
       {/* ── KPI Strip ────────────────────────────────────────── */}
-      {loading && contacts.length === 0 ? (
+      {(isAllWeeks ? globalStats.loading : loading && contacts.length === 0) ? (
         <SkeletonKpiStrip />
       ) : (
         <div className="kpi-strip">
-          <StatCard label="Total Sent" value={stats.totalSent} sub={`${stats.totalPending} pending`} color="#6366f1" trend={trends.sent ?? undefined} />
-          <StatCard label="Bounce Rate" value={`${stats.bounceRate}%`} sub="target <5%" color={stats.bounceRate > 5 ? '#f87171' : '#34d399'} trend={trends.bounceRate ?? undefined} />
-          <StatCard label="Open Rate" value={`${stats.openRate}%`} sub="industry avg 25%" color={stats.openRate > 25 ? '#34d399' : '#f59e0b'} trend={trends.openRate ?? undefined} />
-          <StatCard label="Reply Rate" value={`${stats.replyRate}%`} sub="target >10%" color={stats.replyRate > 10 ? '#34d399' : '#f59e0b'} trend={trends.replyRate ?? undefined} />
-          <StatCard label="Replied" value={contacts.filter(c => c.status === 'replied').length} sub="total replies" color="#34d399" />
-          <StatCard label="Unsubscribed" value={followUpMetrics.totalUnsubscribed} sub={`${stats.totalSent > 0 ? Math.round((followUpMetrics.totalUnsubscribed / stats.totalSent) * 100) : 0}% of total sent`} color="#ef4444" />
+          <StatCard label="Total Sent" value={kpi.totalSent} sub={`${kpi.totalPending} pending`} color="#6366f1" trend={!isAllWeeks ? (trends.sent ?? undefined) : undefined} />
+          <StatCard label="Bounce Rate" value={`${kpi.bounceRate}%`} sub="target <5%" color={kpi.bounceRate > 5 ? '#f87171' : '#34d399'} trend={!isAllWeeks ? (trends.bounceRate ?? undefined) : undefined} />
+          <StatCard label="Open Rate" value={`${kpi.openRate}%`} sub="industry avg 25%" color={kpi.openRate > 25 ? '#34d399' : '#f59e0b'} trend={!isAllWeeks ? (trends.openRate ?? undefined) : undefined} />
+          <StatCard label="Reply Rate" value={`${kpi.replyRate}%`} sub="target >10%" color={kpi.replyRate > 10 ? '#34d399' : '#f59e0b'} trend={!isAllWeeks ? (trends.replyRate ?? undefined) : undefined} />
+          <StatCard label="Replied" value={kpi.replied} sub="total replies" color="#34d399" />
+          <StatCard label="Unsubscribed" value={kpi.unsubscribed} sub={`${kpi.totalSent > 0 ? Math.round((kpi.unsubscribed / kpi.totalSent) * 100) : 0}% of total sent`} color="#ef4444" />
+        </div>
+      )}
+
+      {/* Global stats error banner */}
+      {isAllWeeks && globalStats.error && (
+        <div style={{ margin: '0 24px 12px', padding: '10px 16px', background: '#f871711a', border: '1px solid #f87171', borderRadius: 8 }}>
+          <div style={{ fontSize: 12, color: '#f87171', lineHeight: 1.5 }}>Failed to load global stats: {globalStats.error}</div>
         </div>
       )}
 
       {/* Sheet error banner */}
-      {sheetErrors.length > 0 && (
+      {!isAllWeeks && sheetErrors.length > 0 && (
         <div style={{ margin: '0 24px 12px', padding: '10px 16px', background: '#f871711a', border: '1px solid #f87171', borderRadius: 8 }}>
           {sheetErrors.map((err, i) => (
             <div key={i} style={{ fontSize: 12, color: '#f87171', lineHeight: 1.5 }}>{err}</div>
