@@ -166,7 +166,7 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
     return globalStats.byStatus;
   }, [globalStats]);
 
-  if (!loading && contacts.length === 0 && !globalStats) {
+  if (!loading && contacts.length === 0) {
     return <EmptyState onAddSource={onAddSource} />;
   }
 
@@ -242,7 +242,7 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
         <div className="chart-card wide">
           <h2>Pipeline Funnel</h2>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={globalFunnel || funnel} margin={{ top: 12, right: 20, left: -4, bottom: 0 }} barCategoryGap="32%">
+            <BarChart data={funnel} margin={{ top: 12, right: 20, left: -4, bottom: 0 }} barCategoryGap="32%">
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
               <XAxis
                 dataKey="stage"
@@ -255,7 +255,7 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
               />
               <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }} />
               <Bar dataKey="value" radius={[6, 6, 2, 2]} animationDuration={600}>
-                {(globalFunnel || funnel).map((entry, index) => (
+                {funnel.map((entry, index) => (
                   <Cell key={index} fill={entry.color} fillOpacity={0.85} />
                 ))}
               </Bar>
@@ -268,13 +268,8 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
           <h2>Status Breakdown</h2>
           <div className="status-list">
             {Object.entries(STATUS_COLORS).map(([status, color]) => {
-              const count = globalStatusData
-                ? (globalStatusData[status] || 0)
-                : contacts.filter(c => c.status === status).length;
-              const total = globalStatusData
-                ? Object.values(globalStatusData).reduce((a, b) => a + b, 0)
-                : contacts.length;
-              const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+              const count = contacts.filter(c => c.status === status).length;
+              const pct = contacts.length > 0 ? Math.round((count / contacts.length) * 100) : 0;
               return (
                 <div key={status} className="status-row">
                   <div className="status-dot" style={{ background: color, color }} />
@@ -298,8 +293,8 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
       {/* Reply Rate by Industry */}
       <div className="chart-card full">
         <h2>Reply Rate by Industry</h2>
-        <ResponsiveContainer width="100%" height={Math.max(180, (globalIndustryMetrics || industryMetrics).length * 52)}>
-          <BarChart data={globalIndustryMetrics || industryMetrics} layout="vertical" margin={{ left: 8, right: 48, top: 4, bottom: 4 }} barCategoryGap="30%">
+        <ResponsiveContainer width="100%" height={Math.max(180, industryMetrics.length * 52)}>
+          <BarChart data={industryMetrics} layout="vertical" margin={{ left: 8, right: 48, top: 4, bottom: 4 }} barCategoryGap="30%">
             <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={true} horizontal={false} />
             <XAxis
               type="number" unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
@@ -318,7 +313,7 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
               fill: 'var(--text-secondary)',
               fontSize: 11,
             }}>
-              {(globalIndustryMetrics || industryMetrics).map((entry, index) => (
+              {industryMetrics.map((entry, index) => (
                 <Cell key={index} fill={INDUSTRY_COLORS[entry.industry] || '#6366f1'} fillOpacity={0.85} />
               ))}
             </Bar>

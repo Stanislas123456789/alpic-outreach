@@ -268,7 +268,35 @@ export function useAllSheets(sources: SheetSource[], refreshInterval = 30000) {
           }
         })
     );
-    setContacts(all);
+    // Deduplicate by email when loading multiple sheets — keep the contact
+    // with the most advanced status (replied > opened > bounced > sent > pending)
+    if (sources.length > 1) {
+      const STATUS_PRIORITY: Record<string, number> = {
+        replied: 6, opened: 5, bounced: 4, sent: 3, sending: 2, skipped: 1, pending: 0, invalid: -1,
+      };
+      const emailMap = new Map<string, Contact>();
+      for (const c of all) {
+        const key = c.email.toLowerCase();
+        const existing = emailMap.get(key);
+        if (!existing) {
+          emailMap.set(key, c);
+        } else {
+          const existPri = STATUS_PRIORITY[existing.status] ?? 0;
+          const newPri = STATUS_PRIORITY[c.status] ?? 0;
+          if (newPri > existPri) emailMap.set(key, c);
+          // Merge open count and opted out
+          const merged = emailMap.get(key)!;
+          if (c.openCount > merged.openCount) merged.openCount = c.openCount;
+          if (c.optedOut) merged.optedOut = true;
+          if (c.repliedAt && !merged.repliedAt) merged.repliedAt = c.repliedAt;
+          if (c.sentAt && !merged.sentAt) merged.sentAt = c.sentAt;
+          if (c.assignedTo && !merged.assignedTo) merged.assignedTo = c.assignedTo;
+        }
+      }
+      setContacts(Array.from(emailMap.values()));
+    } else {
+      setContacts(all);
+    }
     setSheetErrors(errors);
     setLastUpdated(new Date());
     setLoading(false);

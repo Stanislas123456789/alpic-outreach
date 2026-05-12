@@ -87,8 +87,9 @@ export default function App() {
   const globalStats = useGlobalStats(isAllWeeks);
   // Don't load sheet data until config is synced from API (prevents loading stale env-var default)
   // When "All Weeks" is selected, skip sheet fetching — KPI data comes from global-stats endpoint
-  const emptySource = { id: '', name: '', sheetId: '', sheetTab: '' };
-  const sheetsData = useAllSheets(synced && !isAllWeeks ? [activeSource] : [emptySource], 30000);
+  // When "All Weeks" is selected, load from ALL sources so every tab gets data
+  const sheetSources = isAllWeeks ? sources : [activeSource];
+  const sheetsData = useAllSheets(synced ? sheetSources : [], 30000);
   const contacts = sheetsData.contacts || [];
   const { loading, lastUpdated, refresh, sheetErrors, repMetrics, industryMetrics, funnel, stats } = sheetsData;
   const emptyTouch = { sent: 0, opened: 0, replied: 0, unsubscribed: 0, openRate: 0, replyRate: 0, unsubRate: 0 };
