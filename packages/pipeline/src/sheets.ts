@@ -131,6 +131,51 @@ function getSheetsClient() {
   return google.sheets({ version: 'v4', auth });
 }
 
+// ─── Cross-sheet dedup ──────────────────────────────────────────────────────
+// Tracks emails already contacted in ANY sheet so we never email someone twice
+// even if they appear in multiple weekly sheets.
+
+let _globallyContactedEmails: Set<string> = new Set();
+
+/** Populate the global dedup set from all known sheets */
+export async function loadGloballyContactedEmails(
+  sheetTargets: { sheetId: string; sheetTab: string }[]
+): Promise<Set<string>> {
+  const emails = new Set<string>();
+  const sheets = getSheetsClient();
+  const DONE_STATUSES = new Set(['sent', 'bounced', 'opened', 'replied', 'skipped', 'invalid', 'sending', 'yes', 'oui']);
+
+  for (const { sheetId, sheetTab } of sheetTargets) {
+    try {
+      const res = await withRetry(() => sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: `${a1Tab(sheetTab)}!H2:AA`,  // H=email, W=status, Y=sentAt, AA=threadId
+      }), `loadGlobalDedup(${sheetTab})`);
+      const rows = res.data.values || [];
+      for (const row of rows) {
+        const email = (row[0] || '').trim().toLowerCase();  // H
+        if (!email) continue;
+        const status = (row[15] || '').toString().toLowerCase().trim();  // W (index 15 from H)
+        const sentAt = (row[17] || '').toString().trim();  // Y
+        const threadId = (row[19] || '').toString().trim();  // AA
+        if (DONE_STATUSES.has(status) || sentAt || threadId) {
+          emails.add(email);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[dedup] Failed to read sheet ${sheetTab}: ${err.message}`);
+    }
+  }
+  _globallyContactedEmails = emails;
+  console.log(`[dedup] Loaded ${emails.size} globally contacted emails from ${sheetTargets.length} sheets`);
+  return emails;
+}
+
+/** Check if an email was already contacted in any sheet */
+export function isGloballyContacted(email: string): boolean {
+  return _globallyContactedEmails.has(email.toLowerCase());
+}
+
 // ─── Read all pending contacts ───────────────────────────────────────────────
 
 export async function getPendingContacts(
@@ -171,6 +216,8 @@ export async function getPendingContacts(
 
     const email = row[SHEET_COLUMNS.email]?.trim();
     if (!email) continue;
+    // Cross-sheet dedup: skip if this email was already contacted in ANY sheet
+    if (_globallyContactedEmails.size > 0 && _globallyContactedEmails.has(email.toLowerCase())) continue;
 
     const contactName = row[SHEET_COLUMNS.contactName] || '';
     const nameParts = contactName.split(' ');

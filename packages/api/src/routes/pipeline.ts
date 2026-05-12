@@ -294,9 +294,16 @@ async function executeCampaign(
   try {
     const { runPipeline } = await import('../../../pipeline/src/index');
     const { setSenders, getSenders } = await import('../../../pipeline/src/gmail');
-    const { setUserSheetsToken } = await import('../../../pipeline/src/sheets');
+    const { setUserSheetsToken, loadGloballyContactedEmails } = await import('../../../pipeline/src/sheets');
 
     const senders = readSenders().filter(s => !!s.refreshToken);
+
+    // Cross-sheet dedup: load all contacted emails from ALL known sheets
+    // so we never email someone who was already contacted from a different sheet
+    const allSheets = getUniqueCampaignSheets();
+    await loadGloballyContactedEmails(allSheets).catch(err =>
+      console.warn('[dedup] Failed to load global dedup set:', err.message)
+    );
     // Always inject ALL senders so the global pool stays complete — sender
     // isolation is enforced per-campaign via the senderEmail param passed to
     // runPipeline → pickSender, not by filtering the global list (which is
@@ -599,7 +606,7 @@ router.get('/preview', async (req: Request, res: Response) => {
   const includeSent = req.query.includeSent === 'true';
 
   try {
-    const { getPendingContacts, getAllContactedContacts, setUserSheetsToken } = await import('../../../pipeline/src/sheets');
+    const { getPendingContacts, getAllContactedContacts, setUserSheetsToken, loadGloballyContactedEmails } = await import('../../../pipeline/src/sheets');
     const { buildSubject, buildBody } = await import('../../../pipeline/src/template');
 
     const senders = readSenders().filter(s => !!s.refreshToken);
@@ -608,6 +615,10 @@ router.get('/preview', async (req: Request, res: Response) => {
     const userEmail = req.headers['x-auth-email'] as string | undefined;
     const preferred = (userEmail && senders.find(s => s.email === userEmail)) || senders[0];
     setUserSheetsToken(preferred.refreshToken);
+
+    // Cross-sheet dedup: load all contacted emails so preview excludes them
+    const allSheets = getUniqueCampaignSheets();
+    await loadGloballyContactedEmails(allSheets).catch(() => {});
 
     const pending = await getPendingContacts(limit, sheetId, tab);
     // Use getAllContactedContacts so the "already sent" count includes replied/bounced/yes/oui
