@@ -11,6 +11,8 @@ export interface GlobalStats {
   totalBounced: number;
   totalUnsubscribed: number;
   byIndustry: Record<string, { contacted: number; total: number }>;
+  byStatus?: Record<string, number>;
+  byIndustryDetailed?: Record<string, { contacted: number; total: number; opened: number; replied: number; bounced: number }>;
 }
 
 function getAuthHeaders(): Record<string, string> {

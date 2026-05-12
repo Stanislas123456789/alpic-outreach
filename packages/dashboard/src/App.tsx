@@ -404,8 +404,9 @@ export default function App() {
             industryMetrics={industryMetrics}
             funnel={funnel}
             followUpMetrics={followUpMetrics}
-            loading={loading}
+            loading={isAllWeeks ? globalStats.loading : loading}
             onAddSource={() => setShowSources(true)}
+            globalStats={isAllWeeks ? globalStats.stats : undefined}
           />
         )}
 

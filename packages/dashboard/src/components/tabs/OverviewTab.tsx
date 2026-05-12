@@ -9,6 +9,7 @@ import { INDUSTRY_COLORS, STATUS_COLORS } from '../ui/constants';
 import { SkeletonChart } from '../ui/Skeleton';
 import type { Contact, IndustryMetrics } from '../../types';
 import type { FollowUpTouchMetrics } from '../../hooks/useSheets';
+import type { GlobalStats } from '../../hooks/useGlobalStats';
 
 type DateRange = '7d' | '30d' | '90d' | 'all';
 
@@ -19,6 +20,7 @@ interface Props {
   followUpMetrics: { touch1: FollowUpTouchMetrics; touch2: FollowUpTouchMetrics; touch3: FollowUpTouchMetrics };
   loading: boolean;
   onAddSource: () => void;
+  globalStats?: GlobalStats | null;
 }
 
 function EmptyState({ onAddSource }: { onAddSource: () => void }) {
@@ -110,7 +112,7 @@ function filterByDateRange(contacts: Contact[], range: DateRange): Contact[] {
   });
 }
 
-export default function OverviewTab({ contacts: rawContacts, industryMetrics: rawIndustryMetrics, funnel: rawFunnel, followUpMetrics: rawFollowUpMetrics, loading, onAddSource }: Props) {
+export default function OverviewTab({ contacts: rawContacts, industryMetrics: rawIndustryMetrics, funnel: rawFunnel, followUpMetrics: rawFollowUpMetrics, loading, onAddSource, globalStats }: Props) {
   const contacts = rawContacts || [];
   const industryMetrics = rawIndustryMetrics || [];
   const funnel = rawFunnel || [];
@@ -135,7 +137,36 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [rangedContacts]);
 
-  if (!loading && contacts.length === 0) {
+  // Build charts from global stats when in "All Weeks" mode
+  const globalFunnel = useMemo(() => {
+    if (!globalStats) return null;
+    return [
+      { stage: 'Sent', value: globalStats.totalContacted, color: '#6366f1' },
+      { stage: 'Delivered', value: globalStats.totalContacted - globalStats.totalBounced, color: '#818cf8' },
+      { stage: 'Opened', value: globalStats.totalOpened + globalStats.totalReplied, color: '#a78bfa' },
+      { stage: 'Replied', value: globalStats.totalReplied, color: '#22c55e' },
+    ];
+  }, [globalStats]);
+
+  const globalIndustryMetrics = useMemo(() => {
+    if (!globalStats?.byIndustryDetailed) return null;
+    return Object.entries(globalStats.byIndustryDetailed)
+      .filter(([ind]) => ind !== 'Unknown')
+      .map(([industry, data]) => ({
+        industry,
+        replyRate: data.contacted > 0 ? Math.round((data.replied / data.contacted) * 100) : 0,
+        total: data.total,
+        contacted: data.contacted,
+      }))
+      .sort((a, b) => b.replyRate - a.replyRate);
+  }, [globalStats]);
+
+  const globalStatusData = useMemo(() => {
+    if (!globalStats?.byStatus) return null;
+    return globalStats.byStatus;
+  }, [globalStats]);
+
+  if (!loading && contacts.length === 0 && !globalStats) {
     return <EmptyState onAddSource={onAddSource} />;
   }
 
@@ -211,7 +242,7 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
         <div className="chart-card wide">
           <h2>Pipeline Funnel</h2>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={funnel} margin={{ top: 12, right: 20, left: -4, bottom: 0 }} barCategoryGap="32%">
+            <BarChart data={globalFunnel || funnel} margin={{ top: 12, right: 20, left: -4, bottom: 0 }} barCategoryGap="32%">
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
               <XAxis
                 dataKey="stage"
@@ -224,7 +255,7 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
               />
               <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }} />
               <Bar dataKey="value" radius={[6, 6, 2, 2]} animationDuration={600}>
-                {funnel.map((entry, index) => (
+                {(globalFunnel || funnel).map((entry, index) => (
                   <Cell key={index} fill={entry.color} fillOpacity={0.85} />
                 ))}
               </Bar>
@@ -237,8 +268,13 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
           <h2>Status Breakdown</h2>
           <div className="status-list">
             {Object.entries(STATUS_COLORS).map(([status, color]) => {
-              const count = contacts.filter(c => c.status === status).length;
-              const pct = contacts.length > 0 ? Math.round((count / contacts.length) * 100) : 0;
+              const count = globalStatusData
+                ? (globalStatusData[status] || 0)
+                : contacts.filter(c => c.status === status).length;
+              const total = globalStatusData
+                ? Object.values(globalStatusData).reduce((a, b) => a + b, 0)
+                : contacts.length;
+              const pct = total > 0 ? Math.round((count / total) * 100) : 0;
               return (
                 <div key={status} className="status-row">
                   <div className="status-dot" style={{ background: color, color }} />
@@ -262,8 +298,8 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
       {/* Reply Rate by Industry */}
       <div className="chart-card full">
         <h2>Reply Rate by Industry</h2>
-        <ResponsiveContainer width="100%" height={Math.max(180, industryMetrics.length * 52)}>
-          <BarChart data={industryMetrics} layout="vertical" margin={{ left: 8, right: 48, top: 4, bottom: 4 }} barCategoryGap="30%">
+        <ResponsiveContainer width="100%" height={Math.max(180, (globalIndustryMetrics || industryMetrics).length * 52)}>
+          <BarChart data={globalIndustryMetrics || industryMetrics} layout="vertical" margin={{ left: 8, right: 48, top: 4, bottom: 4 }} barCategoryGap="30%">
             <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={true} horizontal={false} />
             <XAxis
               type="number" unit="%" tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
@@ -282,7 +318,7 @@ export default function OverviewTab({ contacts: rawContacts, industryMetrics: ra
               fill: 'var(--text-secondary)',
               fontSize: 11,
             }}>
-              {industryMetrics.map((entry, index) => (
+              {(globalIndustryMetrics || industryMetrics).map((entry, index) => (
                 <Cell key={index} fill={INDUSTRY_COLORS[entry.industry] || '#6366f1'} fillOpacity={0.85} />
               ))}
             </Bar>

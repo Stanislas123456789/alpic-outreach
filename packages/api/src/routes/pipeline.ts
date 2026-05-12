@@ -1008,6 +1008,31 @@ router.get('/global-stats', async (req: Request, res: Response) => {
       }
     }
 
+    // Build byStatus for the status breakdown chart
+    const byStatus: Record<string, number> = {};
+    for (const [, record] of emailMap) {
+      if (!record.contacted) {
+        byStatus['pending'] = (byStatus['pending'] || 0) + 1;
+      } else {
+        const s = record.status || 'sent';
+        byStatus[s] = (byStatus[s] || 0) + 1;
+      }
+    }
+
+    // Build byIndustryDetailed for reply/open rate charts
+    const byIndustryDetailed: Record<string, { contacted: number; total: number; opened: number; replied: number; bounced: number }> = {};
+    for (const [, record] of emailMap) {
+      const ind = record.industry || 'Unknown';
+      if (!byIndustryDetailed[ind]) byIndustryDetailed[ind] = { contacted: 0, total: 0, opened: 0, replied: 0, bounced: 0 };
+      byIndustryDetailed[ind].total++;
+      if (record.contacted) {
+        byIndustryDetailed[ind].contacted++;
+        if (record.status === 'opened') byIndustryDetailed[ind].opened++;
+        if (record.status === 'replied') byIndustryDetailed[ind].replied++;
+        if (record.status === 'bounced') byIndustryDetailed[ind].bounced++;
+      }
+    }
+
     res.json({
       totalUniqueContacts: emailMap.size,
       totalContacted,
@@ -1017,6 +1042,8 @@ router.get('/global-stats', async (req: Request, res: Response) => {
       totalBounced,
       totalUnsubscribed,
       byIndustry,
+      byStatus,
+      byIndustryDetailed,
     });
   } catch (err: any) {
     const msg = err.message || '';
