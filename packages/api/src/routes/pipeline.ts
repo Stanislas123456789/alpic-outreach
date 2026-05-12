@@ -122,38 +122,16 @@ export async function loadCampaignsFromDb(): Promise<void> {
       if (r.status === 'running') {
         db.updateCampaignStatus(r.id, 'error', { error: 'Server restarted during execution' }).catch(() => {});
       }
-      // Re-schedule campaigns that were scheduled or active (multi-day) for the future
-      if ((status === 'scheduled' || status === 'active') && r.scheduledAt) {
-        const scheduleTime = new Date(r.scheduledAt);
-        const now = new Date();
+      // SAFETY: Never auto-execute campaigns on server boot. All scheduled/active
+      // campaigns require manual re-launch from the dashboard. This prevents
+      // ghost sends when the server restarts or migrates to a new environment.
+      if (status === 'scheduled' || status === 'active') {
         const c = campaigns.get(r.id)!;
-        if (scheduleTime > now) {
-          const delay = scheduleTime.getTime() - now.getTime();
-          c.scheduledTimer = setTimeout(() => {
-            executeCampaign(c, [], c.emailOverrides || {},
-              c.maxEmails, c.speedMode, c.draftMode,
-              c.senderEmail, c.unsubscribeEnabled,
-              c.sendWindow, c.weekSchedule, c.ccEmail,
-              c.listUnsubscribe, c.plainTextFallback);
-          }, delay);
-          console.log(`[campaigns] Re-scheduled ${status} campaign ${r.id} for ${r.scheduledAt}`);
-        } else if (status === 'active') {
-          // Active multi-day campaign missed its slot — run it now
-          console.log(`[campaigns] Active campaign ${r.id} missed slot ${r.scheduledAt} — running now`);
-          c.status = 'scheduled';
-          setTimeout(() => {
-            executeCampaign(c, [], c.emailOverrides || {},
-              c.maxEmails, c.speedMode, c.draftMode,
-              c.senderEmail, c.unsubscribeEnabled,
-              c.sendWindow, c.weekSchedule, c.ccEmail,
-              c.listUnsubscribe, c.plainTextFallback);
-          }, 10000); // 10s delay to let server finish booting
-        } else {
-          // Scheduled (not active) that missed its time
-          db.updateCampaignStatus(r.id, 'error', { error: 'Missed scheduled time during server restart' }).catch(() => {});
-          c.status = 'error' as Campaign['status'];
-          campaigns.get(r.id)!.error = 'Missed scheduled time during server restart';
-        }
+        const msg = `Server restarted — campaign paused. Re-launch manually from the dashboard.`;
+        c.status = 'error' as Campaign['status'];
+        c.error = msg;
+        db.updateCampaignStatus(r.id, 'error', { error: msg }).catch(() => {});
+        console.log(`[campaigns] Paused ${status} campaign ${r.id} — manual re-launch required`);
       }
     }
     console.log(`[campaigns] Loaded ${campaigns.size} campaigns from Postgres`);
