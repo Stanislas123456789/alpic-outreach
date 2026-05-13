@@ -34,8 +34,8 @@ function loadLocalSources(): SheetSource[] {
 
 function loadActiveId(sources: SheetSource[]): string {
   const saved = localStorage.getItem(ACTIVE_KEY);
-  if (saved && sources.find(s => s.id === saved)) return saved;
-  return sources[0]?.id || 'default';
+  if (saved && (saved === '__all__' || sources.find(s => s.id === saved))) return saved;
+  return '__all__';
 }
 
 function getAuthHeaders(): Record<string, string> {

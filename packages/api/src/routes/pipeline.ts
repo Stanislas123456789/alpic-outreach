@@ -724,15 +724,22 @@ router.get('/campaigns', async (_req: Request, res: Response) => {
   res.json(list);
 });
 
-// DELETE /api/pipeline/campaigns/:id — cancel a scheduled campaign
+// DELETE /api/pipeline/campaigns/:id — stop/cancel a campaign (any status)
 router.delete('/campaigns/:id', (req: Request, res: Response) => {
   const c = campaigns.get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Campaign not found' });
-  if (c.status !== 'scheduled') return res.status(409).json({ error: 'Can only cancel scheduled campaigns' });
-  clearTimeout(c.scheduledTimer);
+  if (c.status === 'done' || c.status === 'cancelled') {
+    return res.status(409).json({ error: `Campaign already ${c.status}` });
+  }
+  // Clear any scheduled timers (next-day run or timezone retry)
+  if (c.scheduledTimer) clearTimeout(c.scheduledTimer);
+  const retryTimer = tzRetryTimers.get(c.id);
+  if (retryTimer) { clearTimeout(retryTimer); tzRetryTimers.delete(c.id); }
   c.status = 'cancelled';
+  c.log.push({ type: 'done', timestamp: new Date().toISOString() });
   saveCampaignToDb(c);
-  res.json({ ok: true });
+  console.log(`[campaign] Campaign ${c.id} (${c.name}) stopped by user — ${c.sent} sent`);
+  res.json({ ok: true, sent: c.sent });
 });
 
 // GET /api/pipeline/campaigns/:id — get single campaign with full log

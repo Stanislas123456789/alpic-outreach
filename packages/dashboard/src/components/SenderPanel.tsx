@@ -318,6 +318,14 @@ function CampaignCard({
         {campaign.status === 'running' && (
           <button style={styles.campaignBtn} onClick={onViewLive}>View Live</button>
         )}
+        {(campaign.status === 'running' || campaign.status === 'active') && (
+          <button
+            style={{ ...styles.campaignBtn, color: '#f87171', borderColor: '#f8717144' }}
+            onClick={() => onCancel(campaign.id)}
+          >
+            Stop
+          </button>
+        )}
         {campaign.status === 'scheduled' && (
           <button
             style={{ ...styles.campaignBtn, color: '#f87171', borderColor: '#f8717144' }}
