@@ -88,6 +88,8 @@ interface Campaign {
 // ─── Persistence (Postgres + in-memory cache) ───────────────────────────────
 
 const campaigns = new Map<string, Campaign>();
+// Separate timers for timezone retries (don't overwrite the next-day schedule timer)
+const tzRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // Load campaigns from Postgres into memory on startup
 export async function loadCampaignsFromDb(): Promise<void> {
@@ -100,6 +102,7 @@ export async function loadCampaignsFromDb(): Promise<void> {
     for (const r of rows) {
       // Any campaign that was "running" at shutdown is now "error"
       const status = r.status === 'running' ? 'error' : r.status;
+      const cfg = r.config || {};
       campaigns.set(r.id, {
         id: r.id,
         name: r.name,
@@ -118,6 +121,16 @@ export async function loadCampaignsFromDb(): Promise<void> {
         startedAt: r.startedAt,
         scheduledAt: r.scheduledAt,
         log: [],
+        // Restore campaign config from DB (survives server restarts)
+        excludeIds: cfg.excludeIds,
+        maxEmails: cfg.maxEmails,
+        speedMode: cfg.speedMode,
+        draftMode: cfg.draftMode,
+        emailOverrides: cfg.emailOverrides,
+        ccEmail: cfg.ccEmail,
+        listUnsubscribe: cfg.listUnsubscribe,
+        plainTextFallback: cfg.plainTextFallback,
+        unsubscribeEnabled: cfg.unsubscribeEnabled,
       });
       // Fix stuck "running" campaigns in Postgres too
       if (r.status === 'running') {
@@ -131,7 +144,7 @@ export async function loadCampaignsFromDb(): Promise<void> {
         if (scheduleTime > now) {
           const delay = scheduleTime.getTime() - now.getTime();
           c.scheduledTimer = setTimeout(() => {
-            executeCampaign(c, [], c.emailOverrides || {},
+            executeCampaign(c, c.excludeIds || [], c.emailOverrides || {},
               c.maxEmails, c.speedMode, c.draftMode,
               c.senderEmail, c.unsubscribeEnabled,
               c.sendWindow, c.weekSchedule, c.ccEmail,
@@ -156,7 +169,7 @@ export async function loadCampaignsFromDb(): Promise<void> {
             nextRun.setHours(c.sendWindow?.startHour || 9, 0, 0, 0);
             c.scheduledAt = nextRun.toISOString();
             c.scheduledTimer = setTimeout(() => {
-              executeCampaign(c, [], c.emailOverrides || {},
+              executeCampaign(c, c.excludeIds || [], c.emailOverrides || {},
                 c.maxEmails, c.speedMode, c.draftMode,
                 c.senderEmail, c.unsubscribeEnabled,
                 c.sendWindow, c.weekSchedule, c.ccEmail,
@@ -204,6 +217,17 @@ function saveCampaignToDb(c: Campaign): void {
     startedAt: c.startedAt,
     scheduledAt: c.scheduledAt,
     completedAt: c.status === 'done' || c.status === 'error' ? new Date().toISOString() : null,
+    config: {
+      excludeIds: c.excludeIds,
+      maxEmails: c.maxEmails,
+      speedMode: c.speedMode,
+      draftMode: c.draftMode,
+      emailOverrides: c.emailOverrides,
+      ccEmail: c.ccEmail,
+      listUnsubscribe: c.listUnsubscribe,
+      plainTextFallback: c.plainTextFallback,
+      unsubscribeEnabled: c.unsubscribeEnabled,
+    },
   }).catch(err => console.error('[campaigns] Postgres save error:', err));
 }
 
@@ -370,7 +394,8 @@ async function executeCampaign(
       onProgress: (event: ProgressEvent) => {
         campaign.log.push(event);
         if (event.type === 'start' && event.total != null) {
-          campaign.total = event.total;
+          // total = already sent + this batch — keeps total >= sent across multi-day campaigns
+          campaign.total = campaign.sent + event.total;
         }
         if (event.type === 'sent') {
           campaign.sent += 1;
@@ -388,6 +413,30 @@ async function executeCampaign(
 
     syncSentCounts(getSenders());
     campaign.daysSent = (campaign.daysSent || 0) + 1;
+
+    // ── Timezone retry: if contacts were skipped due to send window, schedule
+    //    a retry later today so different timezones get a chance ──────────────
+    const todayDate = new Date().toISOString().slice(0, 10);
+    const tzSkippedCount = campaign.log.filter(e =>
+      e.type === 'skipped' &&
+      e.error?.includes('Outside send window') &&
+      e.timestamp?.startsWith(todayDate)
+    ).length;
+
+    if (tzSkippedCount > 0) {
+      const TZ_RETRY_DELAY_MS = 5 * 60 * 60 * 1000; // 5 hours
+      const retryTime = new Date(Date.now() + TZ_RETRY_DELAY_MS);
+      // Only retry if it's before 9 PM UTC (to avoid midnight sends)
+      if (retryTime.getUTCHours() <= 21) {
+        console.log(`[campaign] ${tzSkippedCount} contacts timezone-skipped — scheduling retry at ${retryTime.toISOString()}`);
+        const existingRetry = tzRetryTimers.get(campaign.id);
+        if (existingRetry) clearTimeout(existingRetry);
+        tzRetryTimers.set(campaign.id, setTimeout(() => {
+          tzRetryTimers.delete(campaign.id);
+          runTimezoneRetry(campaign);
+        }, TZ_RETRY_DELAY_MS));
+      }
+    }
 
     // Multi-day campaign: if weekSchedule has more active days ahead and there
     // are likely remaining contacts, set status to "active" and schedule next day
@@ -411,7 +460,7 @@ async function executeCampaign(
           campaign.status = 'active';
           campaign.scheduledAt = nextRun.toISOString();
           campaign.scheduledTimer = setTimeout(() => {
-            executeCampaign(campaign, [], campaign.emailOverrides || {},
+            executeCampaign(campaign, campaign.excludeIds || [], campaign.emailOverrides || {},
               campaign.maxEmails, campaign.speedMode, campaign.draftMode,
               campaign.senderEmail, campaign.unsubscribeEnabled,
               campaign.sendWindow, campaign.weekSchedule, campaign.ccEmail,
@@ -436,6 +485,70 @@ async function executeCampaign(
       campaign.log.push({ type: 'done', timestamp: new Date().toISOString() });
     }
     saveCampaignToDb(campaign);
+  }
+}
+
+// ─── Timezone retry: re-run pipeline for contacts skipped due to send window ─
+// Does NOT change campaign status, daysSent, or multi-day scheduling.
+
+async function runTimezoneRetry(campaign: Campaign) {
+  console.log(`[campaign] Timezone retry for ${campaign.id} (${campaign.name})`);
+  try {
+    const { runPipeline } = await import('../../../pipeline/src/index');
+    const { setSenders, getSenders } = await import('../../../pipeline/src/gmail');
+    const { setUserSheetsToken, loadGloballyContactedEmails } = await import('../../../pipeline/src/sheets');
+
+    const senders = readSenders().filter(s => !!s.refreshToken);
+    if (senders.length === 0) {
+      console.warn('[campaign] Timezone retry skipped — no senders connected');
+      return;
+    }
+
+    const allSheets = await getAllKnownSheets();
+    await loadGloballyContactedEmails(allSheets).catch(() => {});
+    setSenders(senders.map(s => ({ ...s })));
+    const preferredSender = campaign.senderEmail
+      ? senders.find(s => s.email === campaign.senderEmail)
+      : senders[0];
+    setUserSheetsToken((preferredSender || senders[0])?.refreshToken ?? null);
+
+    const { minDelay, maxDelay } = speedToDelays(campaign.speedMode);
+
+    await runPipeline({
+      excludeIds: campaign.excludeIds || [],
+      sheetId: campaign.sheetId,
+      sheetTab: campaign.sheetTab,
+      emailOverrides: campaign.emailOverrides || {},
+      maxEmails: campaign.maxEmails,
+      minDelay, maxDelay,
+      draftMode: campaign.draftMode,
+      unsubscribeEnabled: campaign.unsubscribeEnabled,
+      senderEmail: campaign.senderEmail,
+      sendWindow: campaign.sendWindow,
+      // Skip weekSchedule so daily allocation isn't re-applied — the allocation
+      // already happened in the main run; this retry just catches timezone stragglers
+      ccEmail: campaign.ccEmail,
+      listUnsubscribe: campaign.listUnsubscribe ?? true,
+      plainTextFallback: campaign.plainTextFallback ?? true,
+      onProgress: (event: ProgressEvent) => {
+        campaign.log.push(event);
+        if (event.type === 'sent') {
+          campaign.sent += 1;
+          if (event.via) db.incrementSenderDailyCount(event.via).catch(() => {});
+        }
+        db.addCampaignEvent(campaign.id, {
+          type: event.type, contactId: event.contactId, email: event.email,
+          firstName: event.firstName, company: event.company, via: event.via,
+          error: event.error, idx: event.index, total: event.total,
+        }).catch(() => {});
+      },
+    });
+
+    syncSentCounts(getSenders());
+    saveCampaignToDb(campaign);
+    console.log(`[campaign] Timezone retry complete for ${campaign.id} — total sent: ${campaign.sent}`);
+  } catch (err: any) {
+    console.error(`[campaign] Timezone retry error for ${campaign.id}:`, err.message);
   }
 }
 

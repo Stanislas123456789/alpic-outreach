@@ -85,6 +85,7 @@ export async function initDb(): Promise<void> {
     ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS send_window JSONB;
     ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS week_schedule JSONB;
     ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sender_email TEXT;
+    ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS config JSONB;
   `).catch(() => {});
   // Performance indexes
   await pool.query(`
@@ -119,14 +120,15 @@ export interface DbCampaign {
   scheduledAt: string | null;
   completedAt?: string | null;
   createdAt?: string;
+  config?: any;  // JSONB blob: excludeIds, maxEmails, speedMode, draftMode, emailOverrides, etc.
 }
 
 export async function saveCampaign(c: DbCampaign): Promise<void> {
   await pool.query(`
     INSERT INTO campaigns (id, name, sheet_id, sheet_tab, status, sent, total, error, template_id,
       follow_up, follow_up2, follow_up_unsub, unsub_enabled, send_window, week_schedule,
-      sender_email, started_at, scheduled_at, completed_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      sender_email, started_at, scheduled_at, completed_at, config)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
     ON CONFLICT (id) DO UPDATE SET
       status = EXCLUDED.status,
       sent = EXCLUDED.sent,
@@ -134,7 +136,8 @@ export async function saveCampaign(c: DbCampaign): Promise<void> {
       error = EXCLUDED.error,
       started_at = EXCLUDED.started_at,
       completed_at = EXCLUDED.completed_at,
-      sender_email = COALESCE(EXCLUDED.sender_email, campaigns.sender_email)
+      sender_email = COALESCE(EXCLUDED.sender_email, campaigns.sender_email),
+      config = COALESCE(EXCLUDED.config, campaigns.config)
   `, [
     c.id, c.name || null, c.sheetId, c.sheetTab, c.status, c.sent, c.total,
     c.error || null, c.templateId || null,
@@ -146,6 +149,7 @@ export async function saveCampaign(c: DbCampaign): Promise<void> {
     c.weekSchedule ? JSON.stringify(c.weekSchedule) : null,
     c.senderEmail || null,
     c.startedAt || null, c.scheduledAt || null, c.completedAt || null,
+    c.config ? JSON.stringify(c.config) : null,
   ]);
 }
 
@@ -176,6 +180,7 @@ export async function getCampaigns(limit = 50): Promise<DbCampaign[]> {
     scheduledAt: r.scheduled_at?.toISOString() || null,
     completedAt: r.completed_at?.toISOString() || null,
     createdAt: r.created_at?.toISOString(),
+    config: r.config,
   }));
 }
 
@@ -189,6 +194,7 @@ export async function getCampaign(id: string): Promise<DbCampaign | null> {
     templateId: r.template_id, followUp: r.follow_up, followUp2: r.follow_up2,
     followUpUnsubscribeEnabled: r.follow_up_unsub, unsubscribeEnabled: r.unsub_enabled,
     sendWindow: r.send_window, weekSchedule: r.week_schedule, senderEmail: r.sender_email,
+    config: r.config,
     startedAt: r.started_at?.toISOString() || null,
     scheduledAt: r.scheduled_at?.toISOString() || null,
     completedAt: r.completed_at?.toISOString() || null,
