@@ -1608,6 +1608,7 @@ export default function CampaignWizard({
                   </div>
                 )}
                 <SendLiveView
+                  key={activeCampaignId || 'wizard-live'}
                   pollProgress={activeCampaignId ? () => pollProgress(activeCampaignId) : () => pollProgress()}
                   onDone={() => { /* user closes manually */ }}
                 />

@@ -24,13 +24,13 @@ export default function SendLiveView({ pollProgress, onDone }: Props) {
     const interval = setInterval(async () => {
       try {
         const data = await pollProgress();
-        const newEvents = data.log.slice(seenLength.current);
-        if (newEvents.length > 0) {
+        // Always sync state from server — covers campaign switches & fresh starts
+        setTotal(data.total);
+        setSentCount(data.log.filter(e => e.type === 'sent').length);
+        setFailedCount(data.log.filter(e => e.type === 'failed' || e.type === 'invalid').length);
+        if (data.log.length !== seenLength.current) {
           seenLength.current = data.log.length;
           setLog(data.log);
-          setTotal(data.total);
-          setSentCount(data.log.filter(e => e.type === 'sent').length);
-          setFailedCount(data.log.filter(e => e.type === 'failed' || e.type === 'invalid').length);
         }
         if (!data.running && data.log.some(e => e.type === 'done')) {
           setDone(true);

@@ -738,6 +738,7 @@ export default function SenderPanel({
             <h3 style={styles.cardTitle}>Live Send Feed</h3>
           </div>
           <SendLiveView
+            key={activeCampaignId || 'live'}
             pollProgress={activePollProgress}
             onDone={() => { setShowLive(false); setActiveCampaignId(undefined); onRefresh(); }}
           />
