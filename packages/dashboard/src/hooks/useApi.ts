@@ -69,7 +69,7 @@ export interface Campaign {
   sheetTab: string;
   startedAt: string | null;
   scheduledAt: string | null;
-  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled' | 'active';
+  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled' | 'active' | 'paused';
   sent: number;
   total: number;
   log: ProgressEvent[];
@@ -303,6 +303,36 @@ export function useCampaigns(user: AuthUser | null) {
     }
   }, [user?.email]);
 
+  const pauseCampaign = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`${(import.meta.env.VITE_API_URL || 'http://localhost:4001')}/api/pipeline/campaigns/${id}`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ action: 'pause' }),
+      });
+      if (res.ok) {
+        setCampaigns(prev => prev.map(c => c.id === id ? { ...c, status: 'paused' as const } : c));
+      }
+    } catch {
+      // silent
+    }
+  }, [user?.email]);
+
+  const resumeCampaign = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`${(import.meta.env.VITE_API_URL || 'http://localhost:4001')}/api/pipeline/campaigns/${id}`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ action: 'resume' }),
+      });
+      if (res.ok) {
+        fetchCampaigns(); // Refresh to get the new status from server
+      }
+    } catch {
+      // silent
+    }
+  }, [user?.email, fetchCampaigns]);
+
   useEffect(() => {
     fetchCampaigns();
     const interval = setInterval(fetchCampaigns, 5000);
@@ -317,5 +347,5 @@ export function useCampaigns(user: AuthUser | null) {
     return null;
   }, [user?.email]);
 
-  return { campaigns, cancelCampaign, fetchCampaignDetails, refetch: fetchCampaigns };
+  return { campaigns, cancelCampaign, pauseCampaign, resumeCampaign, fetchCampaignDetails, refetch: fetchCampaigns };
 }

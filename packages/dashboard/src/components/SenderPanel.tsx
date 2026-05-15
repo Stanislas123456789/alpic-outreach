@@ -244,48 +244,74 @@ function CampaignDetailsModal({
   );
 }
 
+function formatScheduleDays(weekSchedule?: Campaign['weekSchedule']): string {
+  if (!weekSchedule?.activeDays) return '';
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return weekSchedule.activeDays
+    .map((active, i) => active ? dayNames[i] : null)
+    .filter(Boolean)
+    .join(', ');
+}
+
 function CampaignCard({
   campaign,
   onCancel,
+  onPause,
+  onResume,
   onViewLive,
   onViewDetails,
 }: {
   campaign: Campaign;
   onCancel: (id: string) => void;
+  onPause: (id: string) => void;
+  onResume: (id: string) => void;
   onViewLive: () => void;
   onViewDetails: (c: Campaign) => void;
 }) {
   const stats = getCampaignStats(campaign);
+  const [expanded, setExpanded] = useState(false);
 
   const [relativeTime, setRelativeTime] = useState(() =>
     campaign.scheduledAt ? formatRelativeTime(campaign.scheduledAt) : ''
   );
 
   useEffect(() => {
-    if (campaign.status !== 'scheduled' || !campaign.scheduledAt) return;
-    const interval = setInterval(() => {
-      setRelativeTime(formatRelativeTime(campaign.scheduledAt!));
-    }, 30000);
+    if ((campaign.status !== 'scheduled' && campaign.status !== 'active') || !campaign.scheduledAt) return;
+    const update = () => setRelativeTime(formatRelativeTime(campaign.scheduledAt!));
+    update();
+    const interval = setInterval(update, 30000);
     return () => clearInterval(interval);
   }, [campaign.status, campaign.scheduledAt]);
 
-  const badge = {
+  const badgeMap: Record<string, { color: string; bg: string; label: string; pulse: boolean }> = {
     scheduled: { color: '#f59e0b', bg: '#f59e0b18', label: 'Scheduled', pulse: false },
     running:   { color: '#34d399', bg: '#34d39918', label: 'Running',   pulse: true  },
     done:      { color: '#34d399', bg: '#34d39918', label: 'Done',      pulse: false },
     active:    { color: '#6366f1', bg: '#6366f118', label: `Active — Day ${campaign.daysSent || 1}`, pulse: true },
     error:     { color: '#f87171', bg: '#f8717118', label: 'Error',     pulse: false },
     cancelled: { color: '#94a3b8', bg: '#94a3b818', label: 'Cancelled', pulse: false },
-  }[campaign.status];
+    paused:    { color: '#f59e0b', bg: '#f59e0b18', label: 'Paused',    pulse: false },
+  };
+  const badge = badgeMap[campaign.status] || badgeMap.error;
 
   const isFinished = campaign.status === 'done' || campaign.status === 'error';
+  const isStoppable = campaign.status === 'running' || campaign.status === 'active' || campaign.status === 'scheduled';
+  const isPausable = campaign.status === 'running' || campaign.status === 'active' || campaign.status === 'scheduled';
   const progressPct = stats.total > 0 ? Math.round((stats.sent / stats.total) * 100) : 0;
   const displayTime = stats.completedAt || campaign.startedAt;
+
+  // Config summary for expanded view
+  const sendWindowStr = campaign.sendWindow?.enabled
+    ? `${campaign.sendWindow.startHour}:00 – ${campaign.sendWindow.endHour}:00`
+    : null;
+  const scheduleDaysStr = formatScheduleDays(campaign.weekSchedule);
+  const hasFollowUp = campaign.followUp?.enabled;
+  const hasFollowUp2 = campaign.followUp2?.enabled;
 
   return (
     <div style={{
       background: 'var(--bg)',
-      border: '1px solid var(--border)',
+      border: `1px solid ${campaign.status === 'paused' ? '#f59e0b44' : 'var(--border)'}`,
       borderRadius: 10,
       padding: '14px 16px',
       display: 'flex',
@@ -294,6 +320,16 @@ function CampaignCard({
     }}>
       {/* Row 1: name + badge + actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            fontSize: 10, color: 'var(--text-secondary)', transition: 'transform 0.2s',
+            transform: expanded ? 'rotate(90deg)' : 'none', flexShrink: 0,
+          }}
+          onClick={() => setExpanded(v => !v)}
+        >
+          &#9654;
+        </button>
         <span style={{
           fontSize: 13, fontWeight: 600, color: 'var(--text)',
           flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
@@ -318,7 +354,23 @@ function CampaignCard({
         {campaign.status === 'running' && (
           <button style={styles.campaignBtn} onClick={onViewLive}>View Live</button>
         )}
-        {(campaign.status === 'running' || campaign.status === 'active') && (
+        {isPausable && (
+          <button
+            style={{ ...styles.campaignBtn, color: '#f59e0b', borderColor: '#f59e0b44' }}
+            onClick={() => onPause(campaign.id)}
+          >
+            Pause
+          </button>
+        )}
+        {campaign.status === 'paused' && (
+          <button
+            style={{ ...styles.campaignBtn, color: '#34d399', borderColor: '#34d39944' }}
+            onClick={() => onResume(campaign.id)}
+          >
+            Resume
+          </button>
+        )}
+        {isStoppable && (
           <button
             style={{ ...styles.campaignBtn, color: '#f87171', borderColor: '#f8717144' }}
             onClick={() => onCancel(campaign.id)}
@@ -326,7 +378,7 @@ function CampaignCard({
             Stop
           </button>
         )}
-        {campaign.status === 'scheduled' && (
+        {campaign.status === 'paused' && (
           <button
             style={{ ...styles.campaignBtn, color: '#f87171', borderColor: '#f8717144' }}
             onClick={() => onCancel(campaign.id)}
@@ -336,7 +388,7 @@ function CampaignCard({
         )}
         {isFinished && (stats.sent > 0 || stats.failed > 0) && (
           <button style={styles.campaignBtn} onClick={() => onViewDetails(campaign)}>
-            Details →
+            Details
           </button>
         )}
       </div>
@@ -408,12 +460,70 @@ function CampaignCard({
 
       {/* Scheduled countdown */}
       {campaign.status === 'scheduled' && campaign.scheduledAt && (
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{relativeTime}</div>
+        <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 500 }}>
+          {relativeTime} — {new Date(campaign.scheduledAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+        </div>
+      )}
+
+      {/* Paused info */}
+      {campaign.status === 'paused' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+          <span style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600 }}>
+            Paused — {campaign.sent} sent so far
+          </span>
+          {campaign.scheduledAt && (
+            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              Was scheduled for {new Date(campaign.scheduledAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+        </div>
       )}
 
       {/* Error message */}
       {campaign.status === 'error' && campaign.error && (
         <div style={{ fontSize: 11, color: '#f87171', fontStyle: 'italic' as const }}>{campaign.error}</div>
+      )}
+
+      {/* Expanded: campaign config details */}
+      {expanded && (
+        <div style={{
+          borderTop: '1px solid var(--border)',
+          paddingTop: 10,
+          marginTop: 2,
+          display: 'flex',
+          flexDirection: 'column' as const,
+          gap: 6,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+            Campaign Config
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' as const, fontSize: 12 }}>
+            {campaign.senderEmail && (
+              <div><span style={{ color: 'var(--text-secondary)' }}>Sender: </span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{campaign.senderEmail.split('@')[0]}</span></div>
+            )}
+            <div><span style={{ color: 'var(--text-secondary)' }}>Sheet: </span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{campaign.sheetTab}</span></div>
+            {campaign.total > 0 && (
+              <div><span style={{ color: 'var(--text-secondary)' }}>Target: </span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{campaign.total} contacts</span></div>
+            )}
+            {sendWindowStr && (
+              <div><span style={{ color: 'var(--text-secondary)' }}>Window: </span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{sendWindowStr}</span></div>
+            )}
+            {scheduleDaysStr && (
+              <div><span style={{ color: 'var(--text-secondary)' }}>Days: </span><span style={{ color: 'var(--text)', fontWeight: 600 }}>{scheduleDaysStr}</span></div>
+            )}
+            {hasFollowUp && (
+              <div style={{ color: '#6366f1', fontWeight: 600 }}>
+                Follow-up 1 ({campaign.followUp!.delayDays}d)
+                {hasFollowUp2 && ` + Follow-up 2 (${campaign.followUp2!.delayDays}d)`}
+              </div>
+            )}
+          </div>
+          {campaign.startedAt && (
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              Started: {new Date(campaign.startedAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -460,7 +570,7 @@ export default function SenderPanel({
 
   const [detailCampaign, setDetailCampaign] = useState<Campaign | null>(null);
 
-  const { campaigns, cancelCampaign, fetchCampaignDetails } = useCampaigns(user);
+  const { campaigns, cancelCampaign, pauseCampaign, resumeCampaign, fetchCampaignDetails } = useCampaigns(user);
 
   async function handleViewDetails(campaign: Campaign) {
     // Fetch full campaign with log events from Postgres
@@ -555,6 +665,8 @@ export default function SenderPanel({
                 key={c.id}
                 campaign={c}
                 onCancel={cancelCampaign}
+                onPause={pauseCampaign}
+                onResume={resumeCampaign}
                 onViewLive={() => {
                   setActiveCampaignId(c.id);
                   setShowLive(true);

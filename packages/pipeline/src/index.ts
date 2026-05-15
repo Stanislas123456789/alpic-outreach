@@ -7,13 +7,25 @@ import dayjs from 'dayjs';
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { getPendingContacts, updateContactStatus, ensureTrackingHeaders } from './sheets';
+import { getPendingContacts, updateContactStatus, ensureTrackingHeaders, addToGloballyContacted } from './sheets';
 import { validateEmail } from './validator';
 import { buildSubject, buildBody, buildTrackingSnippet, buildUnsubscribeUrl, previewEmail, validateEmailContent } from './template';
 import { pickSender, sendEmail, createDraft, resetDailyCounters, getSendStats, EmailOptions } from './gmail';
 import { checkReplies, checkBounces } from './tracker';
 import { Contact } from './types';
 import { isWithinSendWindow, getCurrentDayInTimezone, countryToTimezone } from './timezone';
+
+// ─── Cross-campaign dedup (process-level) ───────────────────────────────────
+// Prevents the same email from being sent by two concurrent campaigns.
+// Node.js is single-threaded so Set operations are atomic — no race between
+// check-and-add even with interleaved async campaigns.
+const _emailsSentThisProcess = new Set<string>();
+const _emailsInFlight = new Set<string>();
+
+function isEmailAvailable(email: string): boolean {
+  const e = email.toLowerCase();
+  return !_emailsSentThisProcess.has(e) && !_emailsInFlight.has(e);
+}
 
 const DRY_RUN = process.env.DRY_RUN === 'true';
 const TEST_EMAIL = process.env.TEST_EMAIL || '';
@@ -73,6 +85,25 @@ async function processContact(
   restrictToSender?: string,
 ): Promise<void> {
   log(`Processing: ${contact.email} (${contact.company})`);
+
+  // Cross-campaign dedup: skip if another concurrent campaign already claimed this email
+  const emailKey = contact.email.toLowerCase();
+  if (!isEmailAvailable(emailKey)) {
+    log(`Skipping ${contact.email} — already claimed by concurrent campaign`, 'warn');
+    onProgress?.({
+      type: 'skipped',
+      contactId: contact.id,
+      email: contact.email,
+      firstName: contact.firstName,
+      company: contact.company,
+      error: 'Already sent or in-flight from concurrent campaign',
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+  _emailsInFlight.add(emailKey);
+
+  try {
 
   onProgress?.({
     type: 'sending',
@@ -211,6 +242,9 @@ async function processContact(
       via: sender.email,
       timestamp: new Date().toISOString(),
     });
+    // Mark as permanently sent so concurrent campaigns skip this email
+    _emailsSentThisProcess.add(emailKey);
+    addToGloballyContacted(emailKey);
   } else {
     if (!TEST_EMAIL) {
       await updateContactStatus(contact.rowIndex, {
@@ -228,6 +262,10 @@ async function processContact(
       error: result.error,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  } finally {
+    _emailsInFlight.delete(emailKey);
   }
 }
 
@@ -250,6 +288,7 @@ export async function runPipeline(options?: {
   listUnsubscribe?: boolean;       // Add List-Unsubscribe headers (default true)
   plainTextFallback?: boolean;     // Include plain-text alternative (default true)
   senderEmail?: string;            // Restrict sending to this email only (user isolation)
+  shouldStop?: () => boolean;      // Checked between contacts to allow early abort (cancel/pause)
 }): Promise<void> {
   const {
     onProgress,
@@ -265,6 +304,7 @@ export async function runPipeline(options?: {
     listUnsubscribe = true,
     plainTextFallback = true,
     senderEmail,
+    shouldStop,
   } = options || {};
 
   log(chalk.bold('🚀 Starting Alpic Outreach Pipeline'));
@@ -297,6 +337,13 @@ export async function runPipeline(options?: {
     contacts = contacts.filter(c => !options.excludeIds!.includes(c.id));
   }
   contacts = contacts.slice(0, maxEmails);
+
+  // Cross-campaign dedup: filter out emails already sent or in-flight from concurrent campaigns
+  const beforeDedup = contacts.length;
+  contacts = contacts.filter(c => isEmailAvailable(c.email.toLowerCase()));
+  if (contacts.length < beforeDedup) {
+    log(`Filtered ${beforeDedup - contacts.length} contacts already claimed by concurrent campaigns`, 'warn');
+  }
 
   log(`Found ${contacts.length} pending contacts`);
 
@@ -342,6 +389,12 @@ export async function runPipeline(options?: {
 
   // Process each contact with delay
   for (let i = 0; i < contacts.length; i++) {
+    // Check if campaign was stopped/paused between contacts
+    if (shouldStop?.()) {
+      log('Campaign stopped — aborting remaining contacts', 'warn');
+      break;
+    }
+
     const contact = contacts[i];
 
     // Check timezone-aware send window for this contact
@@ -386,7 +439,18 @@ export async function runPipeline(options?: {
     if (i < contacts.length - 1 && !DRY_RUN && !draftMode) {
       const delay = randomDelay(minDelay, maxDelay);
       log(`⏱  Waiting ${Math.round(delay / 1000)}s before next email...`);
-      await sleep(delay);
+      // Split sleep into 5s chunks so we can check shouldStop during the wait
+      const chunkMs = 5000;
+      let waited = 0;
+      while (waited < delay) {
+        if (shouldStop?.()) {
+          log('Campaign stopped during wait — aborting', 'warn');
+          break;
+        }
+        await sleep(Math.min(chunkMs, delay - waited));
+        waited += chunkMs;
+      }
+      if (shouldStop?.()) break;
     }
   }
 

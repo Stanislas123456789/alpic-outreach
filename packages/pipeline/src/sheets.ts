@@ -176,6 +176,11 @@ export function isGloballyContacted(email: string): boolean {
   return _globallyContactedEmails.has(email.toLowerCase());
 }
 
+/** Add an email to the global dedup set (used by concurrent campaign dedup) */
+export function addToGloballyContacted(email: string): void {
+  _globallyContactedEmails.add(email.toLowerCase());
+}
+
 // ─── Read all pending contacts ───────────────────────────────────────────────
 
 export async function getPendingContacts(

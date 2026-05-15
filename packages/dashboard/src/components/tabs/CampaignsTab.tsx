@@ -37,7 +37,7 @@ export default function CampaignsTab({ contacts: rawContacts, campaignList, load
     if (!campaignList.length) return [];
     const contactByEmail = new Map(contacts.map(c => [c.email.toLowerCase(), c]));
     return campaignList
-      .filter(c => c.status === 'done' || c.status === 'running' || c.status === 'active')
+      .filter(c => c.status !== 'cancelled')
       .map(c => {
         const emails = c.sentEmails || [];
         const matched = emails.map(e => contactByEmail.get(e.toLowerCase())).filter(Boolean) as Contact[];
@@ -144,7 +144,15 @@ export default function CampaignsTab({ contacts: rawContacts, campaignList, load
                         </div>
                       </td>
                       <td>
-                        <span className={`badge ${c.status === 'done' ? 'badge-green' : c.status === 'error' ? 'badge-red' : c.status === 'active' ? 'badge-blue' : 'badge-yellow'}`}>
+                        <span className={`badge ${
+                          c.status === 'done' ? 'badge-green' :
+                          c.status === 'error' ? 'badge-red' :
+                          c.status === 'active' ? 'badge-blue' :
+                          c.status === 'running' ? 'badge-green' :
+                          c.status === 'paused' ? 'badge-yellow' :
+                          c.status === 'scheduled' ? 'badge-yellow' :
+                          'badge-yellow'
+                        }`}>
                           {c.status}
                         </span>
                       </td>

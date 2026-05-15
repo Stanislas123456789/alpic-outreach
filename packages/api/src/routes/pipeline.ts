@@ -61,7 +61,7 @@ interface Campaign {
   sheetTab: string;
   startedAt: string | null;
   scheduledAt: string | null;
-  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled' | 'active';
+  status: 'scheduled' | 'running' | 'done' | 'error' | 'cancelled' | 'active' | 'paused';
   sent: number;
   total: number;
   log: ProgressEvent[];
@@ -391,6 +391,7 @@ async function executeCampaign(
       ccEmail: ccEmail ?? campaign.ccEmail,
       listUnsubscribe: listUnsubscribe ?? campaign.listUnsubscribe ?? true,
       plainTextFallback: plainTextFallback ?? campaign.plainTextFallback ?? true,
+      shouldStop: () => campaign.status === 'cancelled' || campaign.status === 'paused',
       onProgress: (event: ProgressEvent) => {
         campaign.log.push(event);
         if (event.type === 'start' && event.total != null) {
@@ -530,6 +531,7 @@ async function runTimezoneRetry(campaign: Campaign) {
       ccEmail: campaign.ccEmail,
       listUnsubscribe: campaign.listUnsubscribe ?? true,
       plainTextFallback: campaign.plainTextFallback ?? true,
+      shouldStop: () => campaign.status === 'cancelled' || campaign.status === 'paused',
       onProgress: (event: ProgressEvent) => {
         campaign.log.push(event);
         if (event.type === 'sent') {
@@ -740,6 +742,82 @@ router.delete('/campaigns/:id', (req: Request, res: Response) => {
   saveCampaignToDb(c);
   console.log(`[campaign] Campaign ${c.id} (${c.name}) stopped by user — ${c.sent} sent`);
   res.json({ ok: true, sent: c.sent });
+});
+
+// PATCH /api/pipeline/campaigns/:id — pause or resume a campaign
+router.patch('/campaigns/:id', (req: Request, res: Response) => {
+  const c = campaigns.get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Campaign not found' });
+
+  const action = req.body?.action as string;
+
+  if (action === 'pause') {
+    if (c.status !== 'running' && c.status !== 'scheduled' && c.status !== 'active') {
+      return res.status(409).json({ error: `Cannot pause a ${c.status} campaign` });
+    }
+    // Remember previous status so we can resume to the right state
+    (c as any)._statusBeforePause = c.status;
+    // Clear any scheduled timers
+    if (c.scheduledTimer) { clearTimeout(c.scheduledTimer); c.scheduledTimer = undefined; }
+    const retryTimer = tzRetryTimers.get(c.id);
+    if (retryTimer) { clearTimeout(retryTimer); tzRetryTimers.delete(c.id); }
+    c.status = 'paused';
+    saveCampaignToDb(c);
+    console.log(`[campaign] Campaign ${c.id} (${c.name}) paused by user — ${c.sent} sent so far`);
+    res.json({ ok: true, status: 'paused', sent: c.sent });
+  } else if (action === 'resume') {
+    if (c.status !== 'paused') {
+      return res.status(409).json({ error: `Cannot resume a ${c.status} campaign` });
+    }
+    const prevStatus = (c as any)._statusBeforePause || 'scheduled';
+
+    if (prevStatus === 'scheduled' && c.scheduledAt) {
+      // Re-schedule for the original time (or now if it's past)
+      const scheduleTime = new Date(c.scheduledAt);
+      const delay = Math.max(0, scheduleTime.getTime() - Date.now());
+      c.status = delay > 0 ? 'scheduled' : 'running';
+      if (delay > 0) {
+        c.scheduledTimer = setTimeout(() => {
+          executeCampaign(c, c.excludeIds || [], c.emailOverrides || {},
+            c.maxEmails, c.speedMode, c.draftMode,
+            c.senderEmail, c.unsubscribeEnabled,
+            c.sendWindow, c.weekSchedule, c.ccEmail,
+            c.listUnsubscribe, c.plainTextFallback);
+        }, delay);
+      } else {
+        executeCampaign(c, c.excludeIds || [], c.emailOverrides || {},
+          c.maxEmails, c.speedMode, c.draftMode,
+          c.senderEmail, c.unsubscribeEnabled,
+          c.sendWindow, c.weekSchedule, c.ccEmail,
+          c.listUnsubscribe, c.plainTextFallback);
+      }
+    } else if (prevStatus === 'active' && c.scheduledAt) {
+      // Re-schedule for the next active day
+      const scheduleTime = new Date(c.scheduledAt);
+      const delay = Math.max(0, scheduleTime.getTime() - Date.now());
+      c.status = 'active';
+      c.scheduledTimer = setTimeout(() => {
+        executeCampaign(c, c.excludeIds || [], c.emailOverrides || {},
+          c.maxEmails, c.speedMode, c.draftMode,
+          c.senderEmail, c.unsubscribeEnabled,
+          c.sendWindow, c.weekSchedule, c.ccEmail,
+          c.listUnsubscribe, c.plainTextFallback);
+      }, delay);
+    } else {
+      // Was running — restart the campaign
+      c.status = 'running';
+      executeCampaign(c, c.excludeIds || [], c.emailOverrides || {},
+        c.maxEmails, c.speedMode, c.draftMode,
+        c.senderEmail, c.unsubscribeEnabled,
+        c.sendWindow, c.weekSchedule, c.ccEmail,
+        c.listUnsubscribe, c.plainTextFallback);
+    }
+    saveCampaignToDb(c);
+    console.log(`[campaign] Campaign ${c.id} (${c.name}) resumed — status: ${c.status}`);
+    res.json({ ok: true, status: c.status });
+  } else {
+    res.status(400).json({ error: 'Invalid action. Use "pause" or "resume".' });
+  }
 });
 
 // GET /api/pipeline/campaigns/:id — get single campaign with full log
