@@ -122,6 +122,7 @@ export async function loadCampaignsFromDb(): Promise<void> {
         scheduledAt: r.scheduledAt,
         log: [],
         // Restore campaign config from DB (survives server restarts)
+        daysSent: cfg.daysSent || 0,
         excludeIds: cfg.excludeIds,
         maxEmails: cfg.maxEmails,
         speedMode: cfg.speedMode,
@@ -227,6 +228,7 @@ function saveCampaignToDb(c: Campaign): void {
       listUnsubscribe: c.listUnsubscribe,
       plainTextFallback: c.plainTextFallback,
       unsubscribeEnabled: c.unsubscribeEnabled,
+      daysSent: c.daysSent,
     },
   }).catch(err => console.error('[campaigns] Postgres save error:', err));
 }
@@ -728,8 +730,12 @@ router.get('/campaigns', async (_req: Request, res: Response) => {
 
 // DELETE /api/pipeline/campaigns/:id — stop/cancel a campaign (any status)
 router.delete('/campaigns/:id', (req: Request, res: Response) => {
+  console.log(`[campaign] Stop request for ${req.params.id} (in-memory campaigns: ${campaigns.size})`);
   const c = campaigns.get(req.params.id);
-  if (!c) return res.status(404).json({ error: 'Campaign not found' });
+  if (!c) {
+    console.warn(`[campaign] Stop failed — campaign ${req.params.id} not found in memory`);
+    return res.status(404).json({ error: 'Campaign not found' });
+  }
   if (c.status === 'done' || c.status === 'cancelled') {
     return res.status(409).json({ error: `Campaign already ${c.status}` });
   }

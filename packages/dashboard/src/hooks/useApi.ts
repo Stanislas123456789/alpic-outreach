@@ -290,33 +290,43 @@ export function useCampaigns(user: AuthUser | null) {
   }, [user?.email]);
 
   const cancelCampaign = useCallback(async (id: string) => {
+    // Optimistic update
+    setCampaigns(prev => prev.map(c => c.id === id ? { ...c, status: 'cancelled' as const } : c));
     try {
       const res = await fetch(`${(import.meta.env.VITE_API_URL || 'http://localhost:4001')}/api/pipeline/campaigns/${id}`, {
         method: 'DELETE',
         headers: authHeaders,
       });
-      if (res.ok) {
-        setCampaigns(prev => prev.map(c => c.id === id ? { ...c, status: 'cancelled' as const } : c));
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        console.error('[campaign] Stop failed:', err);
+        fetchCampaigns(); // Revert optimistic update
       }
-    } catch {
-      // silent
+    } catch (err) {
+      console.error('[campaign] Stop request failed:', err);
+      fetchCampaigns(); // Revert optimistic update
     }
-  }, [user?.email]);
+  }, [user?.email, fetchCampaigns]);
 
   const pauseCampaign = useCallback(async (id: string) => {
+    // Optimistic update
+    setCampaigns(prev => prev.map(c => c.id === id ? { ...c, status: 'paused' as const } : c));
     try {
       const res = await fetch(`${(import.meta.env.VITE_API_URL || 'http://localhost:4001')}/api/pipeline/campaigns/${id}`, {
         method: 'PATCH',
         headers: authHeaders,
         body: JSON.stringify({ action: 'pause' }),
       });
-      if (res.ok) {
-        setCampaigns(prev => prev.map(c => c.id === id ? { ...c, status: 'paused' as const } : c));
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        console.error('[campaign] Pause failed:', err);
+        fetchCampaigns(); // Revert optimistic update
       }
-    } catch {
-      // silent
+    } catch (err) {
+      console.error('[campaign] Pause request failed:', err);
+      fetchCampaigns(); // Revert optimistic update
     }
-  }, [user?.email]);
+  }, [user?.email, fetchCampaigns]);
 
   const resumeCampaign = useCallback(async (id: string) => {
     try {
@@ -326,10 +336,13 @@ export function useCampaigns(user: AuthUser | null) {
         body: JSON.stringify({ action: 'resume' }),
       });
       if (res.ok) {
-        fetchCampaigns(); // Refresh to get the new status from server
+        fetchCampaigns();
+      } else {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        console.error('[campaign] Resume failed:', err);
       }
-    } catch {
-      // silent
+    } catch (err) {
+      console.error('[campaign] Resume request failed:', err);
     }
   }, [user?.email, fetchCampaigns]);
 
