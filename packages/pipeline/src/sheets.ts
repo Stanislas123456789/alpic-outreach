@@ -143,7 +143,9 @@ export async function loadGloballyContactedEmails(
 ): Promise<Set<string>> {
   const emails = new Set<string>();
   const sheets = getSheetsClient();
-  const DONE_STATUSES = new Set(['sent', 'bounced', 'opened', 'replied', 'skipped', 'invalid', 'sending', 'yes', 'oui']);
+  // Note: 'sending' is intentionally excluded — contacts stuck in 'sending' from a
+  // crashed/cancelled campaign should be retryable, matching getPendingContacts logic.
+  const DONE_STATUSES = new Set(['sent', 'bounced', 'opened', 'replied', 'skipped', 'invalid', 'yes', 'oui']);
 
   for (const { sheetId, sheetTab } of sheetTargets) {
     try {

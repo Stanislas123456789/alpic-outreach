@@ -13,7 +13,7 @@ import { buildSubject, buildBody, buildTrackingSnippet, buildUnsubscribeUrl, pre
 import { pickSender, sendEmail, createDraft, resetDailyCounters, getSendStats, EmailOptions } from './gmail';
 import { checkReplies, checkBounces } from './tracker';
 import { Contact } from './types';
-import { isWithinSendWindow, getCurrentDayInTimezone, countryToTimezone } from './timezone';
+import { isWithinSendWindow, getCurrentDayInTimezone, countryToTimezone, hasKnownTimezone } from './timezone';
 
 // ─── Cross-campaign dedup (process-level) ───────────────────────────────────
 // Prevents the same email from being sent by two concurrent campaigns.
@@ -331,12 +331,14 @@ export async function runPipeline(options?: {
     options?.sheetId,
     options?.sheetTab
   );
+  const afterFetch = contacts.length;
 
   // Filter out contacts excluded in the preview step
   if (options?.excludeIds?.length) {
     contacts = contacts.filter(c => !options.excludeIds!.includes(c.id));
   }
   contacts = contacts.slice(0, maxEmails);
+  const afterExclude = contacts.length;
 
   // Cross-campaign dedup: filter out emails already sent or in-flight from concurrent campaigns
   const beforeDedup = contacts.length;
@@ -345,7 +347,7 @@ export async function runPipeline(options?: {
     log(`Filtered ${beforeDedup - contacts.length} contacts already claimed by concurrent campaigns`, 'warn');
   }
 
-  log(`Found ${contacts.length} pending contacts`);
+  log(`Pipeline filter breakdown: fetched=${afterFetch}, after-exclude/cap=${afterExclude}, after-dedup=${contacts.length} (maxEmails=${maxEmails})`);
 
   if (contacts.length === 0) {
     log('No pending contacts. Pipeline idle.', 'warn');
@@ -383,6 +385,12 @@ export async function runPipeline(options?: {
       contacts = contacts.slice(0, dailyAllocation);
       log(`Daily allocation: ${dailyAllocation} contacts (${weekSchedule.distributionMode} distribution)`);
     }
+  }
+
+  if (sendWindow?.enabled) {
+    const knownTz = contacts.filter(c => hasKnownTimezone(c.country || ''));
+    const unknownTz = contacts.length - knownTz.length;
+    log(`Send window ${sendWindow.startHour}:00–${sendWindow.endHour}:00 active — ${knownTz.length} contacts with known timezone, ${unknownTz} unknown (will send anyway)`);
   }
 
   onProgress?.({ type: 'start', total: contacts.length, timestamp: new Date().toISOString() });

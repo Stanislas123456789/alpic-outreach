@@ -193,6 +193,15 @@ export function countryToTimezone(country: string): string {
 }
 
 /**
+ * Returns true if the country maps to a known timezone (not a fallback).
+ */
+export function hasKnownTimezone(country: string): boolean {
+  if (!country) return false;
+  const key = country.toLowerCase().trim();
+  return key in COUNTRY_TIMEZONE_MAP;
+}
+
+/**
  * Gets the current hour (0-23) in the given IANA timezone.
  */
 export function getCurrentHourInTimezone(timezone: string): number {
@@ -214,12 +223,19 @@ export function getCurrentHourInTimezone(timezone: string): number {
 /**
  * Checks if the current time in the contact's timezone falls within the send window.
  * Returns true if sending is allowed.
+ *
+ * When the contact's country is unknown (not in our timezone map), we allow sending
+ * rather than blocking — we can't determine their local time so it's better to
+ * deliver at a possibly odd hour than to skip them entirely.
  */
 export function isWithinSendWindow(
   country: string,
   startHour: number,
   endHour: number,
 ): boolean {
+  // Unknown timezone → don't block, let it through
+  if (!hasKnownTimezone(country)) return true;
+
   const tz = countryToTimezone(country);
   const currentHour = getCurrentHourInTimezone(tz);
 
