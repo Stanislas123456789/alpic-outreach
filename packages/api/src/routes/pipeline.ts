@@ -314,9 +314,11 @@ export function getFollowUpConfigs(): { sheetId: string; sheetTab: string; follo
   return result;
 }
 
-function getLastCampaign(): Campaign | undefined {
+function getLastCampaign(senderEmail?: string): Campaign | undefined {
   let last: Campaign | undefined;
   for (const c of campaigns.values()) {
+    // Filter by sender if provided — prevents showing another user's campaign
+    if (senderEmail && c.senderEmail && c.senderEmail !== senderEmail) continue;
     if (!last) { last = c; continue; }
     const aTime = c.startedAt || c.scheduledAt || '';
     const bTime = last.startedAt || last.scheduledAt || '';
@@ -685,10 +687,11 @@ router.post('/run', async (req: Request, res: Response) => {
 });
 
 // GET /api/pipeline/progress — poll current send progress
-// Optional ?campaignId=xxx — return specific campaign, or most recent if omitted
+// Optional ?campaignId=xxx — return specific campaign, or most recent for this user if omitted
 router.get('/progress', (req: Request, res: Response) => {
   const campaignId = req.query.campaignId as string | undefined;
-  const campaign = campaignId ? campaigns.get(campaignId) : getLastCampaign();
+  const senderEmail = req.headers['x-auth-email'] as string | undefined;
+  const campaign = campaignId ? campaigns.get(campaignId) : getLastCampaign(senderEmail);
 
   if (!campaign) {
     res.json({ running: false, total: 0, log: [] });

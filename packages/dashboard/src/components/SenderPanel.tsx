@@ -570,7 +570,12 @@ export default function SenderPanel({
 
   const [detailCampaign, setDetailCampaign] = useState<Campaign | null>(null);
 
-  const { campaigns, cancelCampaign, pauseCampaign, resumeCampaign, fetchCampaignDetails } = useCampaigns(user);
+  const { campaigns: allCampaigns, cancelCampaign, pauseCampaign, resumeCampaign, fetchCampaignDetails } = useCampaigns(user);
+
+  // Only show this user's campaigns (sender isolation) and hide cancelled/stopped ones
+  const campaigns = allCampaigns.filter(c =>
+    c.status !== 'cancelled' && (!c.senderEmail || c.senderEmail === user.email)
+  );
 
   async function handleViewDetails(campaign: Campaign) {
     // Fetch full campaign with log events from Postgres
@@ -579,7 +584,7 @@ export default function SenderPanel({
   }
 
   // Auto-reconnect live view when a running campaign is detected (e.g. after reload).
-  // Track the last running ID we've seen so we only react to changes, not every poll.
+  // Only auto-connect to THIS user's campaigns (campaigns is already filtered above).
   const lastRunningId = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (campaigns.length === 0) return;
